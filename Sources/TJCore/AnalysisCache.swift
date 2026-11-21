@@ -61,6 +61,14 @@ public enum AnalysisCache {
         guard let f = file(for: url) else { return false }
         return FileManager.default.fileExists(atPath: f.path)
     }
+
+    /// Deletes every cached analysis, so each track is analysed again from scratch.
+    public static func clearAll() {
+        let fm = FileManager.default
+        for f in (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [] where f.pathExtension == "json" {
+            try? fm.removeItem(at: f)
+        }
+    }
 }
 
 /// Lets background analysis step aside while a deck is loading.

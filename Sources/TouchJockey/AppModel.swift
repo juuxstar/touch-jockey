@@ -21,7 +21,8 @@ final class AppModel: ObservableObject {
     let library = LibraryModel()
     /// File loaded on each deck, for marking it in the library.
     @Published var loadedPaths: [String?] = [nil, nil]
-    @Published var showConnectHelp = false
+    @Published var showSettings = false
+    @Published var settingsSection: SettingsSection = .connect
     @Published var syncOn = true
     private(set) var server: ControlServer?
 
@@ -40,6 +41,8 @@ final class AppModel: ObservableObject {
     /// Which surface currently has a finger on each lane (touch ownership).
     private var owners: [Band: ControlServer.ClientID] = [:]
     private var ticker: Timer?
+    /// Held while a deck plays and Keep Mac awake is on, so the display doesn't sleep mid-set.
+    private var awakeActivity: NSObjectProtocol?
 
     init() {
         do { try mix.start() } catch { status = "Audio engine failed to start: \(error.localizedDescription)" }
@@ -59,6 +62,9 @@ final class AppModel: ObservableObject {
 
         // ~30 state updates a second to every surface, and the beat readout in the window.
         ticker = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in self?.tick() }
+        let sync = SettingsKey.bool(SettingsKey.syncOnByDefault, default: true)
+        mix.setSync(sync)
+        syncOn = sync
         refresh()
         applyLaunchArguments()
     }
@@ -83,6 +89,12 @@ final class AppModel: ObservableObject {
     }
 
     // MARK: Window actions
+
+    /// Shows the Settings sheet, on `section` if given, otherwise where it was last left.
+    func openSettings(_ section: SettingsSection? = nil) {
+        if let section { settingsSection = section }
+        showSettings = true
+    }
 
     func load(_ url: URL, into deck: Int) {
         decks[deck].loading = true
@@ -180,6 +192,7 @@ final class AppModel: ObservableObject {
         if (b == nil) != (beat == nil) || b.map({ Int($0 * 4) }) != beat.map({ Int($0 * 4) }) { beat = b }
         // A finished deck stops on its own; keep the play state honest.
         for i in 0..<2 where decks[i].playing != mix.decks[i].isPlaying { refresh() }
+        updateKeepAwake()
 
         let out = mix.decks[mix.outgoing], inc = mix.decks[mix.incoming]
         var state: [String: Any] = [
@@ -199,5 +212,16 @@ final class AppModel: ObservableObject {
         if let b { state["beat"] = b; state["bpm"] = out.playingBPM ?? 0 }
         if let start = mix.incomingStartBeat, let b, b < start { state["startsIn"] = start - b }
         server?.broadcast(state)
+    }
+
+    private func updateKeepAwake() {
+        let want = SettingsKey.bool(SettingsKey.keepAwake, default: true) && mix.decks.contains { $0.isPlaying }
+        if want, awakeActivity == nil {
+            awakeActivity = ProcessInfo.processInfo.beginActivity(
+                options: [.userInitiated, .idleDisplaySleepDisabled], reason: "A deck is playing")
+        } else if !want, let a = awakeActivity {
+            ProcessInfo.processInfo.endActivity(a)
+            awakeActivity = nil
+        }
     }
 }

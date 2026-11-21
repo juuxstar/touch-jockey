@@ -23,14 +23,10 @@ struct LibraryView: View {
                     **BPM?** A question mark means the beat was weak, so the tempo is a guess.
 
                     **Recent** lists the tracks you loaded lately. **⌘F** jumps to search.
+
+                    **Folder**: change it, or rescan it, in **Settings** (**⌘,**).
                     """)
                 Spacer()
-                Button { lib.chooseFolder() } label: {
-                    Label(lib.root.lastPathComponent, systemImage: "folder")
-                }
-                .tjButton(TJ.lav).tip("**Library folder**: choose which folder the library shows.\n\nNow: \(lib.root.path)")
-                Button { lib.rescan() } label: { Image(systemName: "arrow.clockwise") }
-                    .tjButton(TJ.lav).tip("**Rescan**: look for new, changed or removed files in the library folder.").disabled(lib.scanning)
             }
 
             HStack(spacing: 6) {
