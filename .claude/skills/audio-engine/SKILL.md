@@ -11,21 +11,40 @@ player → `AVAudioUnitTimePitch` (tempo change with key lock) → three paralle
 filters (24 dB/oct: low < 200 Hz, mid, high > 2.5 kHz) → per-band mixer gains → deck
 output mixer → main mixer.
 
+## Skill ladder (`SkillLadder.swift`)
+
+- One level per technique: blend (`handoff`, `mixer`), timing (`snap`, `free`),
+  tempo (`sync`). `MixEngine.ladder`, changed with `setLevel` / `setLadder`. The app
+  saves it and broadcasts it as `ladder` in `state`.
+- A new level: a `SkillLevel` case (in ladder order) with its `technique`, its text in
+  `Settings.swift`, and the engine behaviour. Guard behaviour on the level, not on UI.
+- **Switching blend level must not jump the sound.** `setLadder` hands over: lanes →
+  EQ positions (`eqPosition(forGain:)`), or the mixer's per-band A/B balance (playing
+  decks only) → lanes, then the mixer resets. `mixer_test.sh` measures the jump.
+
 ## Gain model (`MixEngine.applyGains`)
 
 ```
-band gain   = lane gain × EQ gain          (each band's mixer node)
-deck volume = fader gain × crossfader gain (each deck's output node)
+                handoff level   mixer level
+band gain   =   lane gain       EQ gain                    (each band's mixer node)
+deck volume =   1               fader gain × crossfader    (each deck's output node)
 ```
 
+- **Handoff level:** the mixer is held neutral (stored values too) and `setEQ`,
+  `setVolume`, `setCrossfader` are ignored. **Mixer level:** the lanes are bypassed and
+  `setLane`, `flick`, `backToStable` are ignored.
 - **Lanes**, one per band, run from 0 (deck A) to 1 (deck B), with equal power
-  (A = cos, B = sin). The phone moves them; Flick jumps a lane on the next bar.
+  (A = cos, B = sin). The phone moves them. Flick jumps a lane on the next bar
+  (`snap`) or now over `freeFlickRamp` (20 ms, `free`); a new `setLane` cancels a ramp.
 - **EQ** position 0…1: +6 dB at the top, 0 dB at the centre, −30 dB lower down,
   and a kill in the bottom 2%.
 - **Fader** taper: position squared. **Crossfader**: both decks full at the centre.
-- Only the lanes finish a handoff. When every lane reaches the incoming deck's side,
-  the outgoing deck stops on the next bar and the roles swap. **The lanes stay where
-  they are**, because decks have fixed positions. The mixer never swaps roles.
+- At the handoff level only the lanes finish a handoff. When every lane reaches the
+  incoming deck's side, the outgoing deck stops on the next bar and the roles swap.
+  **The lanes stay where they are**, because decks have fixed positions.
+- At the mixer level the roles swap when the outgoing deck stops or pauses while the
+  incoming deck plays (`checkMixerSwap`, also polled from `syncTick`), so SYNC follows
+  the deck you hear.
 
 ## Timing and sync
 
