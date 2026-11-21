@@ -112,7 +112,9 @@ public final class ControlServer {
             // Only plain file names from the surface folder; no paths.
             let file = self.root.appendingPathComponent(name)
             let body: Data, status: String, type: String
-            if !name.isEmpty, !name.hasPrefix("."), let d = try? Data(contentsOf: file) {
+            if !name.isEmpty, !name.hasPrefix("."), var d = try? Data(contentsOf: file) {
+                // The page carries the version it was served at, so it can tell when a newer one is out.
+                if name == "index.html" { d = Self.stampVersion(d) }
                 body = d; status = "200 OK"; type = Self.contentType(name)
             } else {
                 body = Data("not found".utf8); status = "404 Not Found"; type = "text/plain"
@@ -121,6 +123,29 @@ public final class ControlServer {
             head += "Cache-Control: no-store\r\nConnection: close\r\n\r\n"
             c.send(content: Data(head.utf8) + body, completion: .contentProcessed { _ in c.cancel() })
         }
+    }
+
+    // MARK: Page version
+
+    static let versionPlaceholder = "__TJ_PAGE_VERSION__"
+
+    /// A short hash of the page as it is on disk now. It changes whenever a new build (or a
+    /// copied-in page) replaces `index.html`; the app broadcasts it as `page` in `state`, and
+    /// a surface whose served version differs reloads itself.
+    public func pageVersion() -> String {
+        guard let d = try? Data(contentsOf: root.appendingPathComponent("index.html")) else { return "" }
+        return Self.hash(d)
+    }
+
+    static func hash(_ d: Data) -> String {
+        var h: UInt64 = 0xcbf2_9ce4_8422_2325   // FNV-1a, 64-bit
+        for b in d { h = (h ^ UInt64(b)) &* 0x100_0000_01b3 }
+        return String(h, radix: 36)
+    }
+
+    static func stampVersion(_ d: Data) -> Data {
+        guard let html = String(data: d, encoding: .utf8) else { return d }
+        return Data(html.replacingOccurrences(of: versionPlaceholder, with: hash(d)).utf8)
     }
 
     static func contentType(_ name: String) -> String {

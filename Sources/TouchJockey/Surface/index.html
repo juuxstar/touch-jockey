@@ -54,6 +54,19 @@ body{height:100vh;display:flex;flex-direction:column;gap:10px;
 .hint{color:var(--mute);font-size:11.5px;text-align:right}
 .info{flex:none;width:26px;height:26px;border-radius:50%;border:2px solid var(--gold);background:transparent;color:var(--gold);
   font:700 14px Inter,sans-serif;font-style:italic}
+.gear{flex:none;width:30px;height:30px;border-radius:50%;border:2px solid var(--mute);background:transparent;color:var(--mute);
+  display:flex;align-items:center;justify-content:center;padding:0}
+.gear svg{width:16px;height:16px}
+.footR{display:flex;align-items:center;gap:10px}
+.menu{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(360px,calc(100vw - 40px));z-index:20;
+  background:var(--panel);border:2px solid var(--mute);border-radius:10px;padding:16px 18px;box-shadow:0 10px 40px #000a;
+  display:flex;flex-direction:column;gap:12px}
+.menu[hidden]{display:none}
+.menu b{font-size:16px}
+.menu .row{display:flex;justify-content:space-between;gap:12px;font-size:13px;color:var(--mute)}
+.menu .row span:last-child{color:var(--text);font-weight:600}
+.menu button{height:48px;border:2.5px solid var(--gold);border-radius:6px;background:transparent;color:var(--gold);font:800 16px Inter,sans-serif}
+.menu button.quiet{border-color:var(--line);color:var(--mute);height:40px;font-size:14px}
 .tipbox{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,calc(100vw - 40px));z-index:20;
   background:var(--panel);border:2px solid var(--gold);border-radius:10px;padding:16px 18px;font-size:17px;line-height:1.4;
   box-shadow:0 10px 40px #000a}
@@ -155,7 +168,17 @@ body{height:100vh;display:flex;flex-direction:column;gap:10px;
 </div>
 <div class="foot">
   <div class="beats" id="beats"><span id="barNo">BAR</span><i></i><i></i><i></i><i></i></div>
-  <button class="info" id="infoBtn" aria-label="How the lanes work">i</button>
+  <div class="footR">
+    <button class="gear" id="gearBtn" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+    <button class="info" id="infoBtn" aria-label="How the lanes work">i</button>
+  </div>
+</div>
+<div class="menu" id="menu" hidden>
+  <b>Touch Jockey</b>
+  <div class="row"><span>This device</span><span id="menuName">–</span></div>
+  <div class="row"><span>Laptop</span><span id="menuHost"></span></div>
+  <button id="reloadBtn">Reload</button>
+  <button class="quiet" id="menuClose">Close</button>
 </div>
 <div class="conn" id="conn">Connecting to Touch Jockey…</div>
 <div class="tipbox" id="tipbox" hidden>
@@ -243,6 +266,7 @@ function connect() {
     }
     renderMixer();
     renderTop();
+    checkPageVersion();
   };
 }
 
@@ -269,6 +293,33 @@ function renderTop() {
   else if (o.playing) head = `${state.out} playing`;
   $("headline").textContent = head;
 }
+// ---- settings menu and self-update ----
+// The server stamps the page version into the page it serves; `state.page` is the current one.
+const PAGE_VERSION = "__TJ_PAGE_VERSION__";
+let reloadPending = false;
+function fingersDown() { return pointers.size + mxPointers.size > 0; }
+function checkPageVersion() {
+  // A page opened straight from disk (no stamp) never reloads itself.
+  if (!state.page || PAGE_VERSION.startsWith("__") || state.page === PAGE_VERSION) return;
+  reloadPending = true;
+  if (!fingersDown()) location.reload();
+}
+// Released the last finger with a reload waiting: do it now.
+document.addEventListener("pointerup", () => { if (reloadPending) setTimeout(() => { if (!fingersDown()) location.reload(); }, 50); });
+$("gearBtn").addEventListener("pointerdown", e => {
+  e.stopPropagation();
+  const me = ((state && state.devices) || []).find(d => d.id === deviceId);
+  $("menuName").textContent = me ? me.name : deviceKind();
+  $("menuHost").textContent = location.host;
+  $("menu").hidden = false;
+});
+$("reloadBtn").addEventListener("click", () => location.reload());
+$("menuClose").addEventListener("click", () => { $("menu").hidden = true; });
+// A tap outside the menu closes it and goes no further.
+document.addEventListener("pointerdown", e => {
+  if ($("menu").hidden || e.target.closest("#menu")) return;
+  $("menu").hidden = true; e.stopPropagation(); e.preventDefault();
+}, true);
 $("infoBtn").addEventListener("pointerdown", e => { e.stopPropagation(); $("tipbox").hidden = false; });
 // While the help box is open, any tap closes it and goes no further (so it can't move a lane).
 document.addEventListener("pointerdown", e => {

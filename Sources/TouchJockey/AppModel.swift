@@ -66,6 +66,9 @@ final class AppModel: ObservableObject {
     /// control ids: a lane's band ("low"), "eq:A:low", "vol:B" or "xfade".
     private var owners: [String: ControlServer.ClientID] = [:]
     private var ticker: Timer?
+    /// The phone page's current version (see `ControlServer.pageVersion`), re-read every 2 s.
+    private var pageVersion = ""
+    private var pageCheckTicks = 0
     /// Held while a deck plays and Keep Mac awake is on, so the display doesn't sleep mid-set.
     private var awakeActivity: NSObjectProtocol?
 
@@ -262,6 +265,9 @@ final class AppModel: ObservableObject {
         for i in 0..<2 where decks[i].playing != mix.decks[i].isPlaying { refresh() }
         updateKeepAwake()
 
+        if pageCheckTicks % 60 == 0, let v = server?.pageVersion() { pageVersion = v }
+        pageCheckTicks += 1
+
         let out = mix.decks[mix.outgoing], inc = mix.decks[mix.incoming]
         var state: [String: Any] = [
             "t": "state",
@@ -272,6 +278,8 @@ final class AppModel: ObservableObject {
                 ["name": d.name, "title": d.title, "artist": d.artist, "bpm": d.playingBPM ?? 0, "playing": d.isPlaying, "loaded": d.grid != nil, "beat": d.currentBeat() ?? -1]
             },
             "surfaces": surfaces,
+            // The phone page's version: a surface served an older one reloads itself.
+            "page": pageVersion,
             // Each surface finds itself by its device id: [{"id", "name", "deck": "A" | "B" | "both"}].
             "devices": devices.map { ["id": $0.id, "name": $0.name, "deck": $0.deck.rawValue] },
             // Mixer: EQ per deck (0 kill, 0.5 unity, 1 +6 dB), channel faders, crossfader.

@@ -43,6 +43,20 @@ description: How the Touch Jockey phone/tablet web surface works, its WebSocket 
   `matchMedia("(orientation: portrait)")`, and drag maths uses the matching axis.
 - The lane tint blends by share: blue when all A, orange when all B.
 
+## Devices, per-deck controls and self-update
+
+- On connect the page sends `hello` with a stable `device` id (kept in localStorage)
+  and its `kind`. `state.devices` lists `{id, name, deck}`; each page finds itself by id.
+- At the mixer level with two or more devices, each shows deck `A`, `B` or `both`
+  (`assign`, or Settings → Connect on the Mac). `body.oneDeck` / `deckA` / `deckB`
+  hide the other channel and the other track's header.
+- **Self-update:** `ControlServer` replaces `__TJ_PAGE_VERSION__` in `index.html` with
+  a hash of the file as served, and `state.page` carries the current hash. A page whose
+  stamp differs reloads itself, but never while a finger is on a control. So a new build
+  (or a page copied into the bundle) reaches every phone on its own; no manual reload.
+- The gear in the footer opens a small menu (this device's name, the laptop's address,
+  Reload). Touch targets there and on the deck buttons are at least 44 px tall.
+
 ## iOS home-screen web app quirks
 
 - Don't use `viewport-fit=cover`. iOS 26 blurs whatever is drawn under the status
@@ -61,7 +75,9 @@ description: How the Touch Jockey phone/tablet web surface works, its WebSocket 
 ## Checking
 
 - The page is served live from the app bundle. Copy it into
-  `build/TouchJockey.app/Contents/Resources/Surface/` and reload the phone.
+  `build/TouchJockey.app/Contents/Resources/Surface/` (or run `./build.sh`), and the
+  phones reload themselves within about 2 s. Server-side Swift changes still need an
+  app restart.
 - Run the design plugin's state gate on the page after edits (the Stop hook asks for it).
 - Test in the browser pane at about 440×956 (portrait) and 956×440 (landscape).
   Desktop browsers can't reproduce the iOS quirks above, so ask for a phone screenshot.

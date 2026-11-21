@@ -179,6 +179,8 @@ From a surface:
 | `eq` + `deck` + `band` + `v` | EQ position from 0 (kill) through 0.5 (unity) to 1 (+6 dB). `deck` is 0/1 or `"A"`/`"B"`. |
 | `volume` + `deck` + `v` | Channel fader from 0 (silent) to 1 (full). |
 | `xfade` + `v` | Crossfader from 0 (A only) through 0.5 (both full) to 1 (B only). |
+| `hello` + `device` + `kind` | Sent on connect: a stable id the page keeps in its storage, and `iPhone`, `iPad`, `Android phone`… |
+| `assign` + `deck` | This device's mixer controls: `"A"`, `"B"` or `"both"`. |
 
 `eq`, `volume` and `xfade` work at the mixer level only.
 
@@ -188,4 +190,7 @@ both decks (title, artist, BPM, playing, beat), the outgoing beat and BPM,
 `{low, mid, high}`), `volume` (per deck) and `xfade`, on the same scales as the
 messages above, and `ladder` (`{"blend": "handoff" | "mixer", "timing": "snap" | "free",
 "tempo": "sync"}`). `owners` maps control ids (a band, or `eq:A:low` and so on) to
-the client holding them.
+the client holding them. `devices` lists the surfaces that said hello
+(`{id, name, deck}`), and `page` is the phone page's version: the server stamps the
+version into the page it serves, and a surface whose stamp differs reloads itself
+(once no finger is on a control), so a new build reaches every phone on its own.
