@@ -61,11 +61,24 @@ body{height:100vh;display:flex;flex-direction:column;gap:10px;
 .conn{position:fixed;inset:0;background:#0b0c0fe6;display:flex;align-items:center;justify-content:center;font-weight:600;color:var(--mute);z-index:10}
 .conn.hide{display:none}
 /* Portrait: both tracks on the first row, status and action centred below; shorter footer. */
+/* Portrait: lanes become three vertical columns, A at the top, B at the bottom,
+   so three fingers can each slide one. body.vertical is set from JS on orientation. */
+.vertical .lanes{flex-direction:row}
+.vertical .lane{--y0:46px;--y1:40px}
+.vertical .track{left:0;right:0;top:var(--y0);bottom:var(--y1)}
+.vertical .det{left:12px;right:12px;width:auto;height:2px;margin:-1px 0 0 0;bottom:auto;
+  top:calc(var(--y0) + (100% - var(--y0) - var(--y1)) / 2)}
+.vertical .name{left:50%;top:10px;transform:translateX(-50%)}
+.vertical .pct{right:auto;left:50%;top:auto;bottom:12px;transform:translateX(-50%);white-space:nowrap}
+.vertical .knob{left:10px;right:10px;top:auto;bottom:auto;width:auto;height:14px;margin:-7px 0 0 0}
+.vertical .fillO,.vertical .fillI{left:0;right:0;width:auto}
+.vertical .endA,.vertical .endB{display:block}
+.endA,.endB{display:none;position:absolute;left:8px;font-size:10px;font-weight:800;pointer-events:none}
+.endA{top:calc(var(--y0) - 14px);color:var(--A)}.endB{bottom:calc(var(--y1) - 14px);color:var(--B)}
 @media (orientation:portrait){
   .top{grid-template-columns:1fr 1fr;row-gap:8px}
   .mid{grid-column:1 / span 2;grid-row:2;flex-direction:row;justify-content:center;gap:12px}
   .trk.r{grid-column:2;grid-row:1}
-  .lane{--x0:92px;--x1:64px}
 }
 </style></head>
 <body>
@@ -86,7 +99,7 @@ body{height:100vh;display:flex;flex-direction:column;gap:10px;
 <div class="conn" id="conn">Connecting to Touch Jockey…</div>
 <div class="tipbox" id="tipbox" hidden>
   <b>How the lanes work</b>
-  <p>Each lane moves one part of the music between deck <b>A</b> (left) and deck <b>B</b> (right). Decks never move: after A hands over to B, the next blend goes back from B to A.</p>
+  <p>Each lane moves one part of the music between deck <b>A</b> and deck <b>B</b>: A at the top and B at the bottom when the phone is upright, A left and B right when it's sideways. Decks never move: after A hands over to B, the next blend goes back from B to A.</p><p>Upright, the three lanes sit side by side, so <b>three fingers</b> can each slide one.</p>
   <p><b>Drag</b> a lane to hand that band over. Move highs and mids slowly over a phrase.</p>
   <p><b>Flick</b> a lane and it swaps exactly on the next bar. Use it on LOWS for a clean bass swap.</p>
   <p><b>Two-finger tap</b> anywhere sends everything back to the track that is playing.</p>
@@ -97,13 +110,22 @@ body{height:100vh;display:flex;flex-direction:column;gap:10px;
 const BANDS = [["high","HIGHS","--sky"],["mid","MIDS","--lav"],["low","LOWS","--rose"]];
 const $ = id => document.getElementById(id);
 const lanes = {}; // band -> {el, v, dragging, armed}
+// Portrait: vertical lanes (three columns). Landscape: horizontal lanes.
+const portraitQuery = window.matchMedia("(orientation: portrait)");
+let vertical = portraitQuery.matches;
+function applyOrientation() {
+  vertical = portraitQuery.matches;
+  document.body.classList.toggle("vertical", vertical);
+  for (const b in lanes) renderLane(b);
+}
+portraitQuery.addEventListener("change", applyOrientation);
 let state = null, stateAt = 0, ws = null;
 
 for (const [band, label, color] of BANDS) {
   const el = document.createElement("div");
   el.className = "lane"; el.style.setProperty("--c", `var(${color})`);
   el.innerHTML = `<div class="fillO"></div><div class="fillI"></div><div class="det"></div>
-    <span class="name">${label}</span><span class="pct"></span><div class="track"><div class="knob"></div></div><div class="armedRing"></div>`;
+    <span class="name">${label}</span><span class="pct"></span><span class="endA">A</span><span class="endB">B</span><div class="track"><div class="knob"></div></div><div class="armedRing"></div>`;
   $("lanes").appendChild(el);
   lanes[band] = { el, v: 0, dragging: null, armed: false };
 }
@@ -114,14 +136,14 @@ function renderLane(band) {
   const L = lanes[band], v = L.v, el = L.el;
   // Fixed positions: deck A on the left, deck B on the right; the handle sits where the band is.
   // The side the handle is on glows in that deck's colour; the far side fades.
-  const fo = el.querySelector(".fillO"), fi = el.querySelector(".fillI");
-  const pos = `calc(var(--x0) + (100% - var(--x0) - var(--x1)) * ${v})`;
-  fi.style.left = "var(--x0)"; fi.style.right = "auto"; fi.style.width = `calc((100% - var(--x0) - var(--x1)) * ${v})`;
-  fo.style.left = pos; fo.style.right = "0"; fo.style.width = "auto";
-  const aStrength = Math.round(12 + 28 * (1 - v)), bStrength = Math.round(12 + 28 * v);
-  fi.style.background = `linear-gradient(90deg, color-mix(in srgb, var(--A) ${aStrength}%, transparent), color-mix(in srgb, var(--A) 8%, transparent))`;
-  fo.style.background = `linear-gradient(90deg, color-mix(in srgb, var(--B) 8%, transparent), color-mix(in srgb, var(--B) ${bStrength}%, transparent))`;
-  el.querySelector(".knob").style.left = `${v * 100}%`;
+  const fo = el.querySelector(".fillO"), fi = el.querySelector(".fillI"), knob = el.querySelector(".knob");
+  // The whole lane is tinted by who has the band: blue when all A, orange when all B, a blend between.
+  const aPct = Math.round((1 - v) * 100);
+  Object.assign(fo.style, { inset: "0", width: "auto", height: "auto",
+    background: `color-mix(in srgb, color-mix(in srgb, var(--A) ${aPct}%, var(--B)) 24%, transparent)` });
+  fi.style.display = "none";
+  if (vertical) { knob.style.left = ""; knob.style.top = `${v * 100}%`; }      // A at the top, B at the bottom
+  else          { knob.style.top = ""; knob.style.left = `${v * 100}%`; }      // A on the left, B on the right
   el.querySelector(".pct").textContent = v <= 0.005 ? "all A" : v >= 0.995 ? "all B" : `${Math.round(v * 100)}% B`;
   el.classList.toggle("held", !!L.dragging);
   el.classList.toggle("isArmed", L.armed);
@@ -208,7 +230,11 @@ $("lanes").addEventListener("pointerdown", e => {
   const band = Object.keys(lanes).find(b => lanes[b].el === laneEl);
   const L = lanes[band];
   try { laneEl.setPointerCapture(e.pointerId); } catch (_) {}
-  pointers.set(e.pointerId, { band, x0: e.clientX, v0: L.v, w: laneEl.clientWidth - (parseFloat(getComputedStyle(laneEl).getPropertyValue('--x0')) + parseFloat(getComputedStyle(laneEl).getPropertyValue('--x1'))), hist: [[performance.now(), e.clientX]], moved: 0, t0: performance.now() });
+  // Travel length along the lane's axis: its size minus the label and readout areas.
+  const cs = getComputedStyle(laneEl), px = v => parseFloat(cs.getPropertyValue(v)) || 0;
+  const w = vertical ? laneEl.clientHeight - px("--y0") - px("--y1") : laneEl.clientWidth - px("--x0") - px("--x1");
+  const c = vertical ? e.clientY : e.clientX;
+  pointers.set(e.pointerId, { band, x0: c, v0: L.v, w, hist: [[performance.now(), c]], moved: 0, t0: performance.now() });
   recentDowns = recentDowns.filter(t => performance.now() - t < 250); recentDowns.push(performance.now());
   if (!L.dragging) { L.dragging = e.pointerId; send({ t: "grab", band }); }
   renderLane(band);
@@ -220,9 +246,10 @@ $("lanes").addEventListener("pointermove", e => {
   const p = pointers.get(e.pointerId); if (!p) return;
   e.preventDefault();
   const L = lanes[p.band]; if (L.dragging !== e.pointerId) return;
-  const dx = e.clientX - p.x0;
+  const c = vertical ? e.clientY : e.clientX;
+  const dx = c - p.x0;
   p.moved = Math.max(p.moved, Math.abs(dx));
-  p.hist.push([performance.now(), e.clientX]); if (p.hist.length > 8) p.hist.shift();
+  p.hist.push([performance.now(), c]); if (p.hist.length > 8) p.hist.shift();
   L.v = Math.min(1, Math.max(0, p.v0 + dx / p.w));
   L.armed = false;
   renderLane(p.band);
@@ -274,7 +301,7 @@ window.addEventListener("resize", fitHeight);
 window.addEventListener("orientationchange", () => setTimeout(fitHeight, 250));
 fitHeight();
 
-for (const [band] of BANDS) renderLane(band);
+applyOrientation();
 connect();
 </script>
 </body></html>

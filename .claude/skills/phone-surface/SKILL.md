@@ -29,7 +29,11 @@ description: How the Touch Jockey phone/tablet web surface works, its WebSocket 
 - **CSS class names:** the element-state classes (for example `isArmed`) must never
   equal the name of a styled child element (for example `armedRing`). A clash once
   hid a whole lane.
-- Lanes run **A (left) to B (right)**, matching the Mac.
+- **Orientation:** in portrait, the lanes are three vertical columns (A at the top,
+  B at the bottom), so three fingers can each slide one. In landscape they are
+  horizontal rows (A on the left, B on the right). `body.vertical` toggles from
+  `matchMedia("(orientation: portrait)")`, and drag maths uses the matching axis.
+- The lane tint blends by share: blue when all A, orange when all B.
 
 ## iOS home-screen web app quirks
 
