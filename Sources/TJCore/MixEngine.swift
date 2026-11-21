@@ -9,6 +9,14 @@ import Foundation
 /// side, the handoff finishes on the next bar: the outgoing deck stops and the
 /// roles swap, with the lanes left where they are, so the next blend runs the
 /// other way.
+///
+/// On top of the lanes sits a conventional two-channel mixer: per-deck EQ (high, mid,
+/// low), a channel fader per deck and a crossfader. The layers multiply:
+///
+///     band gain   = lane gain × EQ gain
+///     deck volume = channel fader gain × crossfader gain
+///
+/// The mixer never affects when a handoff finishes; that stays tied to the lanes.
 public final class MixEngine {
     public let engine = AVAudioEngine()
     public let decks: [Deck]
@@ -25,6 +33,13 @@ public final class MixEngine {
     public private(set) var syncOn = true
     /// Decks currently previewing from the cue point while CUE is held.
     public private(set) var previewing: Set<Int> = []
+
+    /// EQ control positions per deck and band, 0...1: 0 = kill, 0.5 = unity (0 dB), 1 = +6 dB.
+    public private(set) var eq: [[Band: Double]] = [[.low: 0.5, .mid: 0.5, .high: 0.5], [.low: 0.5, .mid: 0.5, .high: 0.5]]
+    /// Channel fader positions per deck, 0...1 (1 = full, the default).
+    public private(set) var volumes: [Double] = [1, 1]
+    /// Crossfader position, 0 = deck A only, 0.5 = both full, 1 = deck B only.
+    public private(set) var crossfader: Double = 0.5
 
     public init() {
         decks = [Deck(name: "A"), Deck(name: "B")]
@@ -222,9 +237,74 @@ public final class MixEngine {
     private func applyGains() {
         for b in Band.allCases {
             let x = lanes[b] ?? 0
-            decks[0].setGain(Float(cos(x * .pi / 2)), band: b)   // A
-            decks[1].setGain(Float(sin(x * .pi / 2)), band: b)   // B
+            let lane = [cos(x * .pi / 2), sin(x * .pi / 2)]   // A, B: equal power
+            for i in 0..<2 {
+                decks[i].setGain(Float(lane[i] * Self.eqGain(eq[i][b] ?? 0.5)), band: b)
+            }
         }
+        let xf = Self.crossfaderGains(crossfader)
+        decks[0].setVolume(Float(Self.faderGain(volumes[0]) * xf.a))
+        decks[1].setVolume(Float(Self.faderGain(volumes[1]) * xf.b))
+    }
+
+    // MARK: Mixer (EQ, channel faders, crossfader)
+
+    /// Sets one EQ control, 0...1 (0 = kill, 0.5 = unity, 1 = +6 dB).
+    public func setEQ(deck i: Int, band: Band, _ value: Double) {
+        guard decks.indices.contains(i) else { return }
+        eq[i][band] = min(1, max(0, value))
+        applyGains()
+        onChange?()
+    }
+
+    /// Sets a channel fader, 0...1 (1 = full).
+    public func setVolume(deck i: Int, _ value: Double) {
+        guard decks.indices.contains(i) else { return }
+        volumes[i] = min(1, max(0, value))
+        applyGains()
+        onChange?()
+    }
+
+    /// Sets the crossfader, 0 (A) ... 0.5 (both full) ... 1 (B).
+    public func setCrossfader(_ value: Double) {
+        crossfader = min(1, max(0, value))
+        applyGains()
+        onChange?()
+    }
+
+    /// Range of the EQ's lower half: from unity down to this many dB just above the kill.
+    public static let eqCutRange = 30.0
+    /// Boost at the top of the EQ.
+    public static let eqMaxBoost = 6.0
+
+    /// EQ control position → linear gain.
+    ///
+    /// Upper half: 0 dB to +6 dB, linear in dB. Lower half: 0 dB down to −30 dB, linear
+    /// in dB, and the bottom 2% of travel is a full kill (silence), like an isolator EQ.
+    public static func eqGain(_ v: Double) -> Double {
+        let v = min(1, max(0, v))
+        if v <= 0.02 { return 0 }
+        let db = v >= 0.5 ? (v - 0.5) / 0.5 * eqMaxBoost : (v / 0.5 - 1) * eqCutRange
+        return pow(10, db / 20)
+    }
+
+    /// Channel fader position → linear gain: a squared taper, so half-way is about −12 dB,
+    /// close to the feel of a hardware fader.
+    public static func faderGain(_ v: Double) -> Double {
+        let v = min(1, max(0, v))
+        return v * v
+    }
+
+    /// Crossfader position → gains for A and B.
+    ///
+    /// Both decks are at full volume in the centre. Moving towards one side fades the
+    /// other deck out over that half of the travel with an equal-power (quarter-sine)
+    /// curve: smooth, with no dip in the middle and no click at the ends.
+    public static func crossfaderGains(_ x: Double) -> (a: Double, b: Double) {
+        let x = min(1, max(0, x))
+        let a = x <= 0.5 ? 1 : cos((x - 0.5) * .pi)   // 1 at the centre, 0 at B's end
+        let b = x >= 0.5 ? 1 : sin(x * .pi)           // 0 at A's end, 1 at the centre
+        return (a, b)
     }
 
     /// Lane value meaning "all on this deck": 0 for A, 1 for B.
