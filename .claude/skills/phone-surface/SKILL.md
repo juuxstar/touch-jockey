@@ -20,15 +20,23 @@ description: How the Touch Jockey phone/tablet web surface works, its WebSocket 
 - **Relative drags:** a lane moves by how far the finger travels, never jumping to
   where it lands. The travel width is the lane minus its label and readout areas
   (`--x0` / `--x1`).
-- **Multi-touch:** each lane tracks its own pointer id. `grab` / `release` give
-  touch ownership, so two devices never fight over a lane.
+- **Multi-touch:** each lane and mixer control tracks its own pointer id. `grab` /
+  `release` give touch ownership, so two devices never fight over a control. Lanes
+  send `band`; mixer controls send `control` (`eq:A:low`, `vol:B`, `xfade`), and
+  `AppModel.handle` checks the owner before applying `lane`, `eq`, `volume`, `xfade`.
+- **Two screens by blend level:** `state.ladder.blend` is `handoff` (the lanes) or
+  `mixer` (two channel strips, VOL next to the centre, and a crossfader along the
+  bottom). `renderMixer` swaps them live; leave the lanes screen as it is.
+- **Mixer controls** use the same look as the Mac's `MixerSlider`: a bordered level
+  container, a fill (from the bottom for VOL, from the centre for EQ), an indicator
+  line, the readout inside, and a dashed `isKill` state. Double-tap resets.
 - **Flick:** a fast release jumps the lane on the next bar. The "armed" ring clears
   when the lane reaches its target, or after 5 s.
 - **Two-finger tap:** back to the playing deck's side (`stable`).
 - Wrap `setPointerCapture` in try/catch: it throws for synthetic test events.
-- **CSS class names:** the element-state classes (for example `isArmed`) must never
-  equal the name of a styled child element (for example `armedRing`). A clash once
-  hid a whole lane.
+- **CSS class names:** the element-state classes (for example `isArmed`, `isHeld`,
+  `isKill`) must never equal the name of a styled child element (for example
+  `armedRing`, `mxLine`). A clash once hid a whole lane.
 - **Orientation:** in portrait, the lanes are three vertical columns (A at the top,
   B at the bottom), so three fingers can each slide one. In landscape they are
   horizontal rows (A on the left, B on the right). `body.vertical` toggles from

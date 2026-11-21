@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds TJCore (via build.sh unless --no-build) and runs the muted mixer engine test.
+# Builds TJCore (via build.sh unless --no-build) and runs the muted engine test of the blend levels.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [ "${1:-}" = "--no-build" ] || ./build.sh >/dev/null

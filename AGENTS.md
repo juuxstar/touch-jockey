@@ -4,6 +4,18 @@ Touch Jockey is a DJ app **for beginners**. A Mac-only Swift engine does the aud
 phones and tablets are touch controllers through a web page the Mac serves.
 `README.md` covers the features and architecture, and links the design doc.
 
+## Learning ladder
+
+Touch Jockey is a **learning tool**: beginners start on simplified controls, and
+each one is swapped for the real thing once the user steps that technique up in
+**Settings → Your skills**. `SkillLadder` (TJCore) holds one level per technique:
+blend (`handoff` lanes → `mixer`), bass-swap timing (`snap` → `free`) and tempo
+(`sync`). The engine, the Mac's blend panel and the phone page all follow the blend
+level live. A new level is one `SkillLevel` case plus its UI; switching levels must
+never jump the sound. See `README.md` → Learning ladder.
+
+## Skills
+
 The detailed rules live in project skills, one per area, in `.claude/skills/`.
 Load the relevant skill before working in that area:
 

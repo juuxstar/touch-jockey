@@ -39,13 +39,16 @@ final class AppModel: ObservableObject {
     @Published var eq: [[Band: Double]] = [[.low: 0.5, .mid: 0.5, .high: 0.5], [.low: 0.5, .mid: 0.5, .high: 0.5]]
     @Published var volumes: [Double] = [1, 1]
     @Published var crossfader = 0.5
+    /// The user's level per technique (the learning ladder), saved in UserDefaults.
+    @Published var ladder = SkillLadder()
     @Published var beat: Double?
     @Published var surfaces = 0
     @Published var status = "Load a track into each deck."
     @Published var connectURL: String?
 
-    /// Which surface currently has a finger on each lane (touch ownership).
-    private var owners: [Band: ControlServer.ClientID] = [:]
+    /// Which surface currently has a finger on each control (touch ownership). Keys are
+    /// control ids: a lane's band ("low"), "eq:A:low", "vol:B" or "xfade".
+    private var owners: [String: ControlServer.ClientID] = [:]
     private var ticker: Timer?
     /// Held while a deck plays and Keep Mac awake is on, so the display doesn't sleep mid-set.
     private var awakeActivity: NSObjectProtocol?
@@ -71,6 +74,8 @@ final class AppModel: ObservableObject {
         let sync = SettingsKey.bool(SettingsKey.syncOnByDefault, default: true)
         mix.setSync(sync)
         syncOn = sync
+        let saved = UserDefaults.standard.dictionary(forKey: SettingsKey.skillLadder) as? [String: String] ?? [:]
+        mix.setLadder(SkillLadder(dictionary: saved))
         refresh()
         applyLaunchArguments()
     }
@@ -139,19 +144,30 @@ final class AppModel: ObservableObject {
     func setVolume(_ deck: Int, _ v: Double) { mix.setVolume(deck: deck, v) }
     func setCrossfader(_ v: Double) { mix.setCrossfader(v) }
 
+    /// Moves one technique to a level, and remembers it. Phones follow on the next state broadcast.
+    func setLevel(_ level: SkillLevel) {
+        mix.setLevel(level)
+        UserDefaults.standard.set(mix.ladder.dictionary, forKey: SettingsKey.skillLadder)
+        owners.removeAll()   // the controls on the phones change; nobody holds the new ones yet
+    }
+
     // MARK: Surfaces
 
     private func handle(_ id: ControlServer.ClientID, _ msg: [String: Any]) {
         let band = (msg["band"] as? String).flatMap(Band.init(rawValue:))
         // Mixer messages name the deck as 0/1 or "A"/"B".
         let deck = (msg["deck"] as? Int) ?? (msg["deck"] as? String).flatMap { ["A": 0, "B": 1][$0.uppercased()] }
+        // Touch ownership: `grab` / `release` name a control id, or a lane's band.
+        let control = (msg["control"] as? String) ?? band?.rawValue
+        func free(_ c: String?) -> Bool { c.map { owners[$0] == nil || owners[$0] == id } ?? true }
+        let deckName = deck.map { $0 == 0 ? "A" : "B" } ?? ""
         switch msg["t"] as? String {
         case "grab":
-            if let band, owners[band] == nil { owners[band] = id }
+            if let control, owners[control] == nil { owners[control] = id }
         case "release":
-            if let band, owners[band] == id { owners[band] = nil }
+            if let control, owners[control] == id { owners[control] = nil }
         case "lane":
-            if let band, let v = msg["v"] as? Double, owners[band] == nil || owners[band] == id {
+            if let band, let v = msg["v"] as? Double, free(band.rawValue) {
                 mix.setLane(band, v)
             }
         case "flick":
@@ -163,11 +179,13 @@ final class AppModel: ObservableObject {
         case "cue":
             mix.cueIncoming(every: (msg["every"] as? Double) ?? 32)
         case "eq":
-            if let deck, let band, let v = msg["v"] as? Double { mix.setEQ(deck: deck, band: band, v) }
+            if let deck, let band, let v = msg["v"] as? Double, free("eq:\(deckName):\(band.rawValue)") {
+                mix.setEQ(deck: deck, band: band, v)
+            }
         case "volume":
-            if let deck, let v = msg["v"] as? Double { mix.setVolume(deck: deck, v) }
+            if let deck, let v = msg["v"] as? Double, free("vol:\(deckName)") { mix.setVolume(deck: deck, v) }
         case "xfade":
-            if let v = msg["v"] as? Double { mix.setCrossfader(v) }
+            if let v = msg["v"] as? Double, free("xfade") { mix.setCrossfader(v) }
         case "disconnect":
             for (b, owner) in owners where owner == id { owners[b] = nil }
         default:
@@ -181,6 +199,7 @@ final class AppModel: ObservableObject {
         if eq != mix.eq { eq = mix.eq }
         if volumes != mix.volumes { volumes = mix.volumes }
         if crossfader != mix.crossfader { crossfader = mix.crossfader }
+        if ladder != mix.ladder { ladder = mix.ladder }
         for i in 0..<2 {
             let d = mix.decks[i]
             decks[i].title = d.title
@@ -206,7 +225,7 @@ final class AppModel: ObservableObject {
             "t": "state",
             "out": out.name, "in": inc.name,
             "lanes": Dictionary(uniqueKeysWithValues: mix.lanes.map { ($0.key.rawValue, $0.value) }),
-            "owners": Dictionary(uniqueKeysWithValues: owners.map { ($0.key.rawValue, $0.value) }),
+            "owners": owners,
             "decks": mix.decks.map { d -> [String: Any] in
                 ["name": d.name, "title": d.title, "artist": d.artist, "bpm": d.playingBPM ?? 0, "playing": d.isPlaying, "loaded": d.grid != nil, "beat": d.currentBeat() ?? -1]
             },
@@ -215,6 +234,8 @@ final class AppModel: ObservableObject {
             "eq": mix.eq.map { Dictionary(uniqueKeysWithValues: $0.map { ($0.key.rawValue, $0.value) }) },
             "volume": mix.volumes,
             "xfade": mix.crossfader,
+            // The learning ladder: {"blend": "handoff" | "mixer", "timing": "snap" | "free", "tempo": "sync"}.
+            "ladder": mix.ladder.dictionary,
         ]
         if let b { state["beat"] = b; state["bpm"] = out.playingBPM ?? 0 }
         if let start = mix.incomingStartBeat, let b, b < start { state["startsIn"] = start - b }

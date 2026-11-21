@@ -10,13 +10,21 @@ import Foundation
 /// roles swap, with the lanes left where they are, so the next blend runs the
 /// other way.
 ///
-/// On top of the lanes sits a conventional two-channel mixer: per-deck EQ (high, mid,
-/// low), a channel fader per deck and a crossfader. The layers multiply:
+/// There is also a conventional two-channel mixer: per-deck EQ (high, mid, low), a
+/// channel fader per deck and a crossfader. Which of the two blends depends on the
+/// user's **blend** level on the `SkillLadder`:
 ///
-///     band gain   = lane gain × EQ gain
-///     deck volume = channel fader gain × crossfader gain
+/// - **Handoff** (beginner): the lanes drive the bands. The mixer is held neutral (EQ at
+///   unity, faders full, crossfader centred) and ignores input. A handoff finishes when
+///   every lane reaches the incoming side.
+/// - **Mixer**: the lanes are bypassed and ignore input, so each band gain is that deck's
+///   EQ gain. The roles swap when the outgoing deck stops or pauses while the incoming
+///   deck plays, so the deck you hear becomes the master and SYNC keeps working.
 ///
-/// The mixer never affects when a handoff finishes; that stays tied to the lanes.
+///     band gain   = lane gain (handoff)  or  EQ gain (mixer)
+///     deck volume = 1 (handoff)          or  channel fader gain × crossfader gain (mixer)
+///
+/// Switching level hands the current sound over to the other layer (see `setLadder`).
 public final class MixEngine {
     public let engine = AVAudioEngine()
     public let decks: [Deck]
@@ -40,6 +48,16 @@ public final class MixEngine {
     public private(set) var volumes: [Double] = [1, 1]
     /// Crossfader position, 0 = deck A only, 0.5 = both full, 1 = deck B only.
     public private(set) var crossfader: Double = 0.5
+
+    /// The user's level on each technique (see `SkillLadder`). Beginner by default.
+    public private(set) var ladder = SkillLadder()
+    /// True when the user blends on the mixer rather than the handoff lanes.
+    public var mixerMode: Bool { ladder.blend == .mixer }
+    /// How long a Flick takes to land at the **free** timing level: short enough to feel
+    /// instant, long enough not to click.
+    public static let freeFlickRamp = 0.02
+    /// Bumped per band to cancel a free Flick's ramp when the lane is moved again.
+    private var rampGeneration: [Band: Int] = [:]
 
     public init() {
         decks = [Deck(name: "A"), Deck(name: "B")]
@@ -125,6 +143,7 @@ public final class MixEngine {
             d.play(fromBeat: from, atHostTime: nil)
         }
         d.pausedBeat = nil
+        checkMixerSwap()
         onChange?()
     }
 
@@ -151,6 +170,7 @@ public final class MixEngine {
                 play(deck: i)
             }
         }
+        checkMixerSwap()
         onChange?()
     }
 
@@ -161,6 +181,7 @@ public final class MixEngine {
         d.stop()
         d.pausedBeat = nil
         if i == incoming { incomingStartBeat = nil }
+        checkMixerSwap()
         onChange?()
     }
 
@@ -189,6 +210,7 @@ public final class MixEngine {
         d.pausedBeat = d.currentBeat()
         d.stop()
         if i == incoming { incomingStartBeat = nil }
+        checkMixerSwap()
         onChange?()
     }
 
@@ -198,6 +220,7 @@ public final class MixEngine {
         d.stop()
         d.pausedBeat = nil
         if i == incoming { incomingStartBeat = nil }
+        checkMixerSwap()
         onChange?()
     }
 
@@ -214,59 +237,163 @@ public final class MixEngine {
 
     // MARK: Handoff lanes
 
+    /// Moves a lane. Ignored at the **mixer** blend level, where the lanes are bypassed.
     public func setLane(_ band: Band, _ value: Double) {
+        guard !mixerMode else { return }
+        rampGeneration[band, default: 0] += 1   // a hand on the lane cancels a free Flick's ramp
+        moveLane(band, value)
+    }
+
+    private func moveLane(_ band: Band, _ value: Double) {
+        guard !mixerMode else { return }
         lanes[band] = min(1, max(0, value))
         applyGains()
         checkFinish()
         onChange?()
     }
 
-    /// A flick: the band jumps to `target` (0 = A, 1 = B) exactly on the outgoing deck's next bar.
+    /// A flick: the band jumps to `target` (0 = A, 1 = B). At the **snap** timing level it
+    /// lands exactly on the outgoing deck's next bar; at **free** it lands now, over a
+    /// `freeFlickRamp` ramp so it doesn't click. Ignored at the mixer blend level.
     public func flick(_ band: Band, to target: Double) {
+        guard !mixerMode else { return }
+        if ladder.timing == .free { rampLane(band, to: target, over: Self.freeFlickRamp); return }
         guard let (host, _) = hostTime(ofNextBoundary: 4) else { setLane(band, target); return }
         at(hostTime: host) { self.setLane(band, target) }
     }
 
-    /// Back to the last stable mix: everything on the outgoing deck.
+    /// Moves a lane to `target` in a few steps over `seconds`.
+    private func rampLane(_ band: Band, to target: Double, over seconds: Double) {
+        let from = lanes[band] ?? 0
+        rampGeneration[band, default: 0] += 1
+        let gen = rampGeneration[band]
+        let steps = 5
+        for k in 1...steps {
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds * Double(k) / Double(steps)) { [weak self] in
+                guard let self, self.rampGeneration[band] == gen else { return }
+                self.moveLane(band, from + (target - from) * Double(k) / Double(steps))
+            }
+        }
+    }
+
+    /// Back to the last stable mix: everything on the outgoing deck. Ignored at the mixer level.
     public func backToStable() {
-        for b in Band.allCases { lanes[b] = laneEnd(forDeck: outgoing) }
+        guard !mixerMode else { return }
+        for b in Band.allCases { lanes[b] = laneEnd(forDeck: outgoing); rampGeneration[b, default: 0] += 1 }
         applyGains()
         onChange?()
     }
 
     private func applyGains() {
+        let mixer = mixerMode
         for b in Band.allCases {
             let x = lanes[b] ?? 0
-            let lane = [cos(x * .pi / 2), sin(x * .pi / 2)]   // A, B: equal power
+            // Handoff: the lanes, equal power (A = cos, B = sin). Mixer: the lanes are bypassed.
+            let lane = mixer ? [1.0, 1.0] : [cos(x * .pi / 2), sin(x * .pi / 2)]
             for i in 0..<2 {
-                decks[i].setGain(Float(lane[i] * Self.eqGain(eq[i][b] ?? 0.5)), band: b)
+                let eqG = mixer ? Self.eqGain(eq[i][b] ?? 0.5) : 1
+                decks[i].setGain(Float(lane[i] * eqG), band: b)
             }
         }
+        // Handoff: the mixer is held neutral, so both decks are at full volume.
+        let xf = mixer ? Self.crossfaderGains(crossfader) : (a: 1.0, b: 1.0)
+        decks[0].setVolume(Float((mixer ? Self.faderGain(volumes[0]) : 1) * xf.a))
+        decks[1].setVolume(Float((mixer ? Self.faderGain(volumes[1]) : 1) * xf.b))
+    }
+
+    // MARK: Skill ladder
+
+    /// Puts one technique on a level (see `SkillLadder`).
+    public func setLevel(_ level: SkillLevel) {
+        var next = ladder
+        next.set(level)
+        setLadder(next)
+    }
+
+    /// Changes the user's levels. Changing the **blend** level hands the current sound
+    /// over to the other layer, so nothing jumps:
+    ///
+    /// - **Handoff → mixer**: each deck's EQ is set to the gain its lane was giving that
+    ///   band (a lane on A gives A unity and B a kill; half-way gives both −3 dB). Faders
+    ///   stay full and the crossfader centred, as the handoff held them. Gains below the
+    ///   EQ's lowest step (about −29 dB) round to a kill or that step.
+    /// - **Mixer → handoff**: each lane is set to the balance between the decks the mixer
+    ///   was giving that band (EQ × fader × crossfader), counting only decks that are
+    ///   playing. A lane can only hold equal power, so a band turned down on both decks
+    ///   comes back to full level; the balance between A and B is what's kept. A band that
+    ///   is silent on every playing deck goes to a stopped deck's side, so it stays silent
+    ///   (or to the outgoing side if nothing is playing). Then the mixer resets to neutral.
+    public func setLadder(_ next: SkillLadder) {
+        let wasMixer = mixerMode
+        ladder = next
+        if wasMixer != mixerMode {
+            for b in Band.allCases { rampGeneration[b, default: 0] += 1 }
+            if mixerMode { handOverToMixer() } else { handOverToLanes() }
+        }
+        applyGains()
+        if !mixerMode { checkFinish() }
+        checkMixerSwap()
+        onChange?()
+    }
+
+    private func handOverToMixer() {
+        for b in Band.allCases {
+            let x = lanes[b] ?? 0
+            eq[0][b] = Self.eqPosition(forGain: cos(x * .pi / 2))
+            eq[1][b] = Self.eqPosition(forGain: sin(x * .pi / 2))
+        }
+        volumes = [1, 1]
+        crossfader = 0.5
+    }
+
+    private func handOverToLanes() {
         let xf = Self.crossfaderGains(crossfader)
-        decks[0].setVolume(Float(Self.faderGain(volumes[0]) * xf.a))
-        decks[1].setVolume(Float(Self.faderGain(volumes[1]) * xf.b))
+        let deckGain = [Self.faderGain(volumes[0]) * xf.a, Self.faderGain(volumes[1]) * xf.b]
+        let silentSide = decks.indices.first { !decks[$0].isPlaying } ?? outgoing
+        for b in Band.allCases {
+            let g = (0..<2).map { decks[$0].isPlaying ? Self.eqGain(eq[$0][b] ?? 0.5) * deckGain[$0] : 0 }
+            if g[0] + g[1] > 1e-6 {
+                lanes[b] = atan2(g[1], g[0]) / (.pi / 2)
+            } else {
+                lanes[b] = laneEnd(forDeck: decks.contains { $0.isPlaying } ? silentSide : outgoing)
+            }
+        }
+        eq = [[.low: 0.5, .mid: 0.5, .high: 0.5], [.low: 0.5, .mid: 0.5, .high: 0.5]]
+        volumes = [1, 1]
+        crossfader = 0.5
+    }
+
+    /// At the mixer level, the deck you hear is the master: when the outgoing deck has
+    /// stopped or paused and the incoming one plays, they swap roles.
+    private func checkMixerSwap() {
+        guard mixerMode, !decks[outgoing].isPlaying, decks[incoming].isPlaying else { return }
+        outgoing = incoming
+        incomingStartBeat = nil
+        phaseIntegral = 0
+        finishScheduled = false
     }
 
     // MARK: Mixer (EQ, channel faders, crossfader)
 
-    /// Sets one EQ control, 0...1 (0 = kill, 0.5 = unity, 1 = +6 dB).
+    /// Sets one EQ control, 0...1 (0 = kill, 0.5 = unity, 1 = +6 dB). Ignored at the handoff level.
     public func setEQ(deck i: Int, band: Band, _ value: Double) {
-        guard decks.indices.contains(i) else { return }
+        guard mixerMode, decks.indices.contains(i) else { return }
         eq[i][band] = min(1, max(0, value))
         applyGains()
         onChange?()
     }
 
-    /// Sets a channel fader, 0...1 (1 = full).
+    /// Sets a channel fader, 0...1 (1 = full). Ignored at the handoff level.
     public func setVolume(deck i: Int, _ value: Double) {
-        guard decks.indices.contains(i) else { return }
+        guard mixerMode, decks.indices.contains(i) else { return }
         volumes[i] = min(1, max(0, value))
         applyGains()
         onChange?()
     }
 
-    /// Sets the crossfader, 0 (A) ... 0.5 (both full) ... 1 (B).
+    /// Sets the crossfader, 0 (A) ... 0.5 (both full) ... 1 (B). Ignored at the handoff level.
     public func setCrossfader(_ value: Double) {
+        guard mixerMode else { return }
         crossfader = min(1, max(0, value))
         applyGains()
         onChange?()
@@ -286,6 +413,16 @@ public final class MixEngine {
         if v <= 0.02 { return 0 }
         let db = v >= 0.5 ? (v - 0.5) / 0.5 * eqMaxBoost : (v / 0.5 - 1) * eqCutRange
         return pow(10, db / 20)
+    }
+
+    /// Linear gain → the EQ position that gives it (the inverse of `eqGain`). Gains above
+    /// +6 dB clamp to the top; gains below the lowest step above the kill (about −29 dB)
+    /// round to that step or, below half of it, to the kill.
+    public static func eqPosition(forGain g: Double) -> Double {
+        if g >= 1 { return min(1, 0.5 + 0.5 * (20 * log10(g)) / eqMaxBoost) }
+        let lowest = 0.021
+        if g < eqGain(lowest) { return g < eqGain(lowest) / 2 ? 0 : lowest }
+        return max(lowest, 0.5 * (1 + 20 * log10(g) / eqCutRange))
     }
 
     /// Channel fader position → linear gain: a squared taper, so half-way is about −12 dB,
@@ -322,7 +459,7 @@ public final class MixEngine {
         finishScheduled = true
         at(hostTime: host) {
             self.finishScheduled = false
-            guard self.allOnIncoming else { return }
+            guard !self.mixerMode, self.allOnIncoming else { return }
             self.decks[self.outgoing].stop()
             self.outgoing = self.incoming
             self.incomingStartBeat = nil
@@ -346,6 +483,7 @@ public final class MixEngine {
     /// offset to the nearest whole beat and trims the incoming rate by at most ±1%.
     /// Call it regularly (the app calls it 30 times a second).
     public func syncTick(interval dt: Double) {
+        if mixerMode, !decks[outgoing].isPlaying, decks[incoming].isPlaying { checkMixerSwap(); onChange?() }
         let inc = decks[incoming], out = decks[outgoing]
         guard syncOn, inc.isPlaying, out.isPlaying, incomingStartBeat == nil || (outgoingBeat() ?? 0) >= (incomingStartBeat ?? 0),
               let ib = inc.currentBeat(), let ob = out.currentBeat(), ib >= 0 else { return }

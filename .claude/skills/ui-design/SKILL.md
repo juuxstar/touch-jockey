@@ -50,6 +50,10 @@ the screen, and leave as much room as possible for DJing.
   - Phone page: Inter, with tabular figures for numbers.
 - Use the app's own controls rather than native-looking ones: `Panel`, `.tjButton(color, filled:)`,
   `MixerSlider`, `CueButton`. Pop-ups and sheets use `.modalStyle(color)` (a bright border).
+- Sliders are **digital levels, not imitation faders**: no knob caps or grooves. A
+  rounded container (10 px corners, 2.5 px border in the band or deck colour, the dark
+  lane background), a filled level, a bright indicator line at the value, and the
+  readout inside. The phone's mixer screen uses the same look.
 
 ## Layout
 
@@ -61,6 +65,9 @@ the screen, and leave as much room as possible for DJing.
   height), then the status line.
 - Keep the main window for DJing. Rarely needed options go in the Settings window
   (⌘,, `Settings.swift`).
+- **Learning ladder:** show only the controls for the user's level (the blend panel
+  shows the lanes or the mixer, never both). Levels change in Settings → Your skills;
+  each level gets a one-line description and an ⓘ saying when to move up.
 - The window opens full screen on the laptop's built-in display (`WindowPlacement.swift`).
 - Check that layouts still fit at 140% text size and at the minimum window size
   (about 1240×760 pt).
