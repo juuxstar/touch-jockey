@@ -16,9 +16,10 @@ struct TouchJockeyApp: App {
         WindowGroup("Touch Jockey") {
             ContentView()
                 .environmentObject(model)
-                .frame(minWidth: 940, minHeight: 620)
+                .frame(minWidth: 940, minHeight: 760)
                 .preferredColorScheme(.dark)
         }
+        .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
     }
 }
@@ -34,6 +35,7 @@ enum TJ {
     static let gold = Color(red: 1.0, green: 0.769, blue: 0.302)
     static let mint = Color(red: 0.357, green: 0.890, blue: 0.690)
     static let lav = Color(red: 0.769, green: 0.608, blue: 1.0)
+    static let sky = Color(red: 0.561, green: 0.816, blue: 1.0)
     static func band(_ b: Band) -> Color {
         switch b {
         case .high: return Color(red: 0.561, green: 0.816, blue: 1.0)
@@ -69,31 +71,34 @@ struct Cap: View {
 struct ContentView: View {
     @EnvironmentObject var m: AppModel
 
+    @State private var showSplash = true
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            header
-            HStack(alignment: .top, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
                 deckCard(0)
                 deckCard(1)
             }
-            HStack(alignment: .top, spacing: 12) {
+            Panel(color: TJ.sky) {
+                DeckTimeline(mix: m.mix).frame(minHeight: 180, maxHeight: .infinity)
+            }
+            HStack(alignment: .top, spacing: 10) {
                 lanesPanel
                 connectPanel.frame(width: 300)
             }
-            Spacer(minLength: 0)
+            Text(m.status).font(.system(size: 11)).foregroundColor(TJ.mute).lineLimit(1)
         }
-        .padding(16)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+        .padding(.top, 4)
         .background(TJ.bg)
-    }
-
-    var header: some View {
-        HStack(spacing: 10) {
-            if let img = NSImage(contentsOf: AppModel.surfaceFolder().appendingPathComponent("tj-icon.png")) {
-                Image(nsImage: img).resizable().frame(width: 30, height: 30).clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay {
+            if showSplash { SplashView().transition(.opacity) }
+        }
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                withAnimation(.easeOut(duration: 0.45)) { showSplash = false }
             }
-            Text("Touch Jockey").font(.system(size: 17, weight: .semibold))
-            Spacer()
-            Text(m.status).font(.system(size: 12)).foregroundColor(TJ.mute).lineLimit(1)
         }
     }
 
@@ -189,5 +194,28 @@ struct ContentView: View {
         let img = NSImage(size: rep.size)
         img.addRepresentation(rep)
         return img
+    }
+}
+
+// MARK: - Launch splash
+
+/// Shown for a moment at launch while the engine and control server start.
+struct SplashView: View {
+    @State private var appear = false
+    var body: some View {
+        ZStack {
+            TJ.bg
+            VStack(spacing: 18) {
+                if let img = NSImage(contentsOf: AppModel.surfaceFolder().appendingPathComponent("tj-icon.png")) {
+                    Image(nsImage: img).resizable().frame(width: 128, height: 128)
+                        .clipShape(RoundedRectangle(cornerRadius: 28))
+                        .scaleEffect(appear ? 1 : 0.9)
+                }
+                Text("Touch Jockey").font(.system(size: 30, weight: .bold))
+                Text("Starting the audio engine and touch surfaces…").font(.system(size: 13)).foregroundColor(TJ.mute)
+            }
+            .opacity(appear ? 1 : 0)
+        }
+        .onAppear { withAnimation(.easeOut(duration: 0.5)) { appear = true } }
     }
 }

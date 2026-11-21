@@ -131,6 +131,7 @@ public final class ControlServer {
         case "svg": return "image/svg+xml"
         case "png": return "image/png"
         case "json": return "application/json"
+        case "webmanifest": return "application/manifest+json"
         default: return "application/octet-stream"
         }
     }

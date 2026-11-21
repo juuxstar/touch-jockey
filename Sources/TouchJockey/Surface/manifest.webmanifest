@@ -1,0 +1,16 @@
+{
+  "name": "Touch Jockey",
+  "short_name": "Touch Jockey",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#0b0c0f",
+  "theme_color": "#0b0c0f",
+  "icons": [
+    { "src": "tj-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "tj-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "tj-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -27,6 +27,11 @@ public enum BeatAnalyzer {
     public enum Failure: Error { case unreadable, tooShort }
 
     public static func analyze(url: URL, minBPM: Double = 100, maxBPM: Double = 150) throws -> BeatGrid {
+        try analyzeTrack(url: url, minBPM: minBPM, maxBPM: maxBPM).grid
+    }
+
+    /// Beat grid plus a waveform for drawing, from one read of the file.
+    public static func analyzeTrack(url: URL, minBPM: Double = 100, maxBPM: Double = 150) throws -> TrackAnalysis {
         let file = try AVAudioFile(forReading: url)
         let format = file.processingFormat
         let sampleRate = format.sampleRate
@@ -42,7 +47,7 @@ public enum BeatAnalyzer {
             vDSP_vadd(mono, 1, channels[c], 1, &mono, 1, vDSP_Length(n))
         }
 
-        let (onset, lowEnergy, envRate) = onsetEnvelope(mono, sampleRate: sampleRate)
+        let (onset, lowEnergy, fullEnergy, envRate) = onsetEnvelope(mono, sampleRate: sampleRate)
         let (bpm, phase) = combSearch(onset, envRate: envRate, minBPM: minBPM, maxBPM: maxBPM)
 
         // First downbeat: the first beat at or after the point where the music starts.
@@ -53,11 +58,12 @@ public enum BeatAnalyzer {
         var beatFrame = phase
         while beatFrame + period * 0.5 < musicStart { beatFrame += period }
 
-        return BeatGrid(bpm: bpm, firstBeat: beatFrame / envRate, duration: Double(n) / sampleRate)
+        let grid = BeatGrid(bpm: bpm, firstBeat: beatFrame / envRate, duration: Double(n) / sampleRate)
+        return TrackAnalysis(grid: grid, waveform: Waveform(full: fullEnergy, low: lowEnergy, rate: envRate))
     }
 
     /// Positive changes in log energy, weighted towards the kick drum, at about 200 frames a second.
-    static func onsetEnvelope(_ x: [Float], sampleRate: Double) -> (onset: [Float], low: [Float], rate: Double) {
+    static func onsetEnvelope(_ x: [Float], sampleRate: Double) -> (onset: [Float], low: [Float], full: [Float], rate: Double) {
         let hop = max(1, Int(sampleRate / 200))
         let frames = x.count / hop
         let alpha = Float(1 - exp(-2 * Double.pi * 150 / sampleRate))   // one-pole low-pass at 150 Hz
@@ -82,7 +88,7 @@ public enum BeatAnalyzer {
             let df = log(full[f] + 1e-6) - log(full[f - 1] + 1e-6)
             onset[f] = max(0, dl) + 0.5 * max(0, df)
         }
-        return (onset, low, sampleRate / Double(hop))
+        return (onset, low, full, sampleRate / Double(hop))
     }
 
     /// Score = onset strength summed at every predicted beat; best (bpm, phase in frames) wins.
@@ -117,5 +123,40 @@ public enum BeatAnalyzer {
         let fine = best(bpms: stride(from: coarse.0 - 0.12, through: coarse.0 + 0.12, by: 0.005),
                         phaseStep: 0.25, around: (coarse.0, coarse.1))
         return (fine.0, fine.1)
+    }
+}
+
+/// Result of analysing a track.
+public struct TrackAnalysis {
+    public var grid: BeatGrid
+    public var waveform: Waveform
+}
+
+/// Loudness over time for drawing: whole-signal and bass levels, each 0...1, at `rate` values a second.
+public struct Waveform {
+    public let rate: Double
+    public let full: [Float]
+    public let low: [Float]
+
+    /// Builds from per-frame energies; levels are RMS scaled so the loudest 0.5% reach 1.
+    init(full fullEnergy: [Float], low lowEnergy: [Float], rate: Double) {
+        func levels(_ e: [Float]) -> [Float] {
+            let rms = e.map { sqrt($0) }
+            let sorted = rms.sorted()
+            let ref = max(sorted[Int(Double(sorted.count - 1) * 0.995)], 1e-6)
+            return rms.map { min(1, $0 / ref) }
+        }
+        self.rate = rate
+        full = levels(fullEnergy)
+        low = levels(lowEnergy)
+    }
+
+    /// Peak levels over a span of seconds (used per drawn column).
+    public func level(from a: Double, to b: Double) -> (full: Float, low: Float) {
+        let i0 = max(0, Int(a * rate)), i1 = min(full.count, max(i0 + 1, Int(b * rate)))
+        guard i0 < i1 else { return (0, 0) }
+        var f: Float = 0, l: Float = 0
+        for i in i0..<i1 { f = max(f, full[i]); l = max(l, low[i]) }
+        return (f, l)
     }
 }

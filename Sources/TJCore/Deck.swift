@@ -21,6 +21,7 @@ public final class Deck {
     public private(set) var title: String = ""
     public private(set) var artist: String = ""
     public private(set) var grid: BeatGrid?
+    public private(set) var waveform: Waveform?
     /// File frame where the currently scheduled segment starts.
     var segmentStartFrame: AVAudioFramePosition = 0
     public private(set) var isPlaying = false
@@ -72,11 +73,12 @@ public final class Deck {
         engine.connect(output, to: engine.mainMixerNode, format: nil)
     }
 
-    func load(url: URL, grid: BeatGrid, in engine: AVAudioEngine) throws {
+    func load(url: URL, analysis: TrackAnalysis, in engine: AVAudioEngine) throws {
         stop()
         let f = try AVAudioFile(forReading: url)
         file = f
-        self.grid = grid
+        grid = analysis.grid
+        waveform = analysis.waveform
         (title, artist) = Deck.tags(url)
         connect(in: engine, format: f.processingFormat)
     }

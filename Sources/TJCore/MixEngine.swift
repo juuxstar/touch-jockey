@@ -39,12 +39,13 @@ public final class MixEngine {
     /// Analyses and loads a track into a deck. Analysis runs off the main thread.
     public func load(url: URL, into deckIndex: Int, completion: @escaping (Result<BeatGrid, Error>) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result { try BeatAnalyzer.analyze(url: url) }
+            let result = Result { try BeatAnalyzer.analyzeTrack(url: url) }
             DispatchQueue.main.async {
                 switch result {
-                case .success(let grid):
+                case .success(let analysis):
                     do {
-                        try self.decks[deckIndex].load(url: url, grid: grid, in: self.engine)
+                        let grid = analysis.grid
+                        try self.decks[deckIndex].load(url: url, analysis: analysis, in: self.engine)
                         if deckIndex == self.incoming { self.incomingStartBeat = nil }
                         self.applyGains()
                         completion(.success(grid))
