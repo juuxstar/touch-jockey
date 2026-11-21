@@ -25,7 +25,13 @@ Working:
   - load tracks
   - start, cue and stop
   - lanes as sliders, for testing without a phone
-  - a QR code for connecting a surface
+  - a status-line indicator of connected phones; click it for the QR code
+- Settings window (**⌘,**, or the gear in the status line), so the main window keeps its space for DJing:
+  - Connect a phone: QR code, address, steps, connected count
+  - Display: text size (80-160%) and help icons
+  - Library: music folder, rescan, re-analyse all tracks
+  - Playback: SYNC on by default, keep the Mac awake while a deck plays
+  - App: version and restart
 
 Not yet built (see the design doc's milestones):
 
@@ -44,9 +50,19 @@ Not yet built (see the design doc's milestones):
 open build/TouchJockey.app
 ```
 
-Load a track into each deck from the window. Then scan the QR code with a phone
-on the same Wi-Fi, turn the phone sideways, tap **Start A**, then
+Load a track into each deck from the window. Then open Settings (**⌘,**, or click
+**0 connected** in the status line), scan the QR code with a phone on the same Wi-Fi, turn the phone sideways, tap **Start A**, then
 **Bring in B next phrase**, and drag the lanes.
+
+### Keyboard shortcuts
+
+| Keys | Action |
+| --- | --- |
+| **⌘,** | Settings |
+| **⌘+** / **⌘−** / **⌘0** | Bigger, smaller, actual-size text |
+| **⌘F** | Search the library |
+| **⌥⌘R** | Restart Touch Jockey |
+| **Esc** / **Return** | Close Settings |
 
 Developer shortcuts:
 
@@ -77,6 +93,7 @@ Sources/
     ControlServer.swift    HTTP for the surface (8080) + WebSocket for control (8081)
   TouchJockey/             the Mac app
     App.swift              window (SwiftUI)
+    Settings.swift         Settings sheet and its UserDefaults keys
     AppModel.swift         connects engine, window and surfaces; 30 Hz state broadcast
     Surface/index.html     the web surface served to phones and tablets
   tj-analyze/              command-line beat analysis
