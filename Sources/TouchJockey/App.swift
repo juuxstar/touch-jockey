@@ -1,5 +1,4 @@
 import AppKit
-import CoreImage.CIFilterBuiltins
 import SwiftUI
 import TJCore
 
@@ -22,17 +21,29 @@ struct TouchJockeyApp: App {
                 .environmentObject(model.library)
                 .frame(minWidth: 1240, minHeight: 760)
                 .preferredColorScheme(.dark)
+                // Outside .id(uiScale), so changing the text size from Settings doesn't close and reopen it.
+                .sheet(isPresented: $model.showSettings) {
+                    SettingsView()
+                        .id(uiScale)
+                        .environmentObject(model)
+                        .environmentObject(model.library)
+                        .preferredColorScheme(.dark)
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { model.openSettings() }
+                    .keyboardShortcut(",")
+            }
             CommandGroup(after: .appInfo) {
                 Button("Restart Touch Jockey") { AppRestart.relaunch() }
                     .keyboardShortcut("r", modifiers: [.command, .option])
             }
             CommandGroup(after: .toolbar) {
-                Button("Bigger Text") { uiScale = min(UIScale.range.upperBound, ((uiScale + 0.1) * 10).rounded() / 10) }
+                Button("Bigger Text") { uiScale = UIScale.stepped(uiScale, by: 0.1) }
                     .keyboardShortcut("+")
-                Button("Smaller Text") { uiScale = max(UIScale.range.lowerBound, ((uiScale - 0.1) * 10).rounded() / 10) }
+                Button("Smaller Text") { uiScale = UIScale.stepped(uiScale, by: -0.1) }
                     .keyboardShortcut("-")
                 Button("Actual Size") { uiScale = 1 }
                     .keyboardShortcut("0")
@@ -66,6 +77,11 @@ enum UIScale {
     static let key = "uiScale"
     static let range: ClosedRange<Double> = 0.8...1.6
     static var current: CGFloat { CGFloat(UserDefaults.standard.object(forKey: key) as? Double ?? 1) }
+
+    /// One step bigger or smaller, rounded to a whole 10% and kept in range.
+    static func stepped(_ value: Double, by delta: Double) -> Double {
+        min(range.upperBound, max(range.lowerBound, ((value + delta) * 10).rounded() / 10))
+    }
 }
 
 extension Font {
@@ -200,7 +216,6 @@ struct ContentView: View {
         }
         .coordinateSpace(name: tooltipSpace)
         .overlay(TooltipLayer())
-        .sheet(isPresented: $m.showConnectHelp) { ConnectSheet(url: m.connectURL, surfaces: m.surfaces, qr: m.connectURL.flatMap(qrImage)) }
     }
 
     var mainColumn: some View {
@@ -226,17 +241,18 @@ struct ContentView: View {
                             .padding(6)
                     }
             }
-            // Handoff and Surfaces side by side, always the same height.
+            // Handoff panel.
             HStack(alignment: .top, spacing: 10) {
                 lanesPanel
-                connectPanel.frame(width: 190)
             }
             .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 Text(m.status).font(.tj(11)).foregroundColor(TJ.mute).lineLimit(1)
                 Spacer()
-                Button { AppRestart.relaunch() } label: { Label("Restart", systemImage: "arrow.clockwise") }
-                    .tjButton(TJ.mute).tip("**Restart**: quit and reopen Touch Jockey, for example after a new build.\n\nShortcut: **⌥⌘R**")
+                connectedIndicator
+                Button { m.openSettings() } label: { Image(systemName: "gearshape") }
+                    .tjButton(TJ.mute)
+                    .tip("**Settings**: connect a phone, text size, library folder, playback options and more.\n\nShortcut: **⌘,**")
             }
         }
     }
@@ -352,40 +368,18 @@ struct ContentView: View {
         }
     }
 
-    /// Compact: a small QR code and the connection count. Click for a large code and instructions.
-    var connectPanel: some View {
-        Panel(color: TJ.mint, fillHeight: true) {
-            HStack(spacing: 6) {
-                Cap(text: "Surfaces")
-                InfoTip("**Surfaces**: phones and tablets you use as touch controllers.\n\n**Click this card** for the code to scan and step-by-step instructions.")
-            }
-            VStack(spacing: 6) {
-                if let url = m.connectURL, let qr = qrImage(url) {
-                    Image(nsImage: qr).interpolation(.none).resizable().frame(width: 92, height: 92)
-                        .background(Color.white).clipShape(RoundedRectangle(cornerRadius: 6))
-                } else {
-                    Image(systemName: "wifi.slash").font(.tj(30)).foregroundColor(TJ.mute).frame(width: 92, height: 92)
-                }
-                Text(m.surfaces == 1 ? "1 connected" : "\(m.surfaces) connected")
-                    .font(.tj(13, weight: .semibold)).monospacedDigit()
-                    .foregroundColor(m.surfaces > 0 ? TJ.mint : TJ.mute)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    /// How many phones and tablets are connected. Click for the code to scan and the steps.
+    var connectedIndicator: some View {
+        Button { m.openSettings(.connect) } label: {
+            Label(m.surfaces == 1 ? "1 connected" : "\(m.surfaces) connected",
+                  systemImage: "iphone.radiowaves.left.and.right")
+                .font(.tj(11.5, weight: .semibold)).monospacedDigit()
+                .foregroundColor(m.surfaces > 0 ? TJ.mint : TJ.mute)
+                .padding(.horizontal, 6).padding(.vertical, 4)
+                .contentShape(Rectangle())
         }
-        .contentShape(Rectangle())
-        .onTapGesture { m.showConnectHelp = true }
-        .tip("**Connect a phone**: show the code to scan and the steps.")
-    }
-
-    func qrImage(_ s: String) -> NSImage? {
-        let f = CIFilter.qrCodeGenerator()
-        f.message = Data(s.utf8)
-        f.correctionLevel = "M"
-        guard let out = f.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)) else { return nil }
-        let rep = NSCIImageRep(ciImage: out)
-        let img = NSImage(size: rep.size)
-        img.addRepresentation(rep)
-        return img
+        .buttonStyle(.plain)
+        .tip("**Surfaces**: phones and tablets you use as touch controllers. This counts the ones connected now.\n\n**Click** for the code to scan and step-by-step instructions.")
     }
 }
 
@@ -409,55 +403,6 @@ struct SplashView: View {
             .opacity(appear ? 1 : 0)
         }
         .onAppear { withAnimation(.easeOut(duration: 0.5)) { appear = true } }
-    }
-}
-
-// MARK: - Connect sheet
-
-/// Large QR code plus how to connect and install the phone surface.
-struct ConnectSheet: View {
-    let url: String?
-    let surfaces: Int
-    let qr: NSImage?
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 24) {
-            if let qr {
-                Image(nsImage: qr).interpolation(.none).resizable().frame(width: 240, height: 240)
-                    .padding(10).background(Color.white).clipShape(RoundedRectangle(cornerRadius: 10))
-            }
-            VStack(alignment: .leading, spacing: 12) {
-                Cap(text: "Connect a phone or tablet")
-                if let url {
-                    Text(url).font(.tj(18, weight: .semibold)).textSelection(.enabled)
-                } else {
-                    Text("No network address found. Connect this Mac to Wi-Fi.").foregroundColor(TJ.mute)
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    step(1, "Join the same Wi-Fi network as this Mac.")
-                    step(2, "Scan the code with the camera, or type the address into the browser.")
-                    step(3, "On iPhone: in Safari tap Share, then Add to Home Screen. Open it from the icon for full screen.")
-                    step(4, "Turn the phone sideways for the handoff lanes.")
-                }
-                Text("\(surfaces) connected now").font(.tj(12, weight: .semibold))
-                    .foregroundColor(surfaces > 0 ? TJ.mint : TJ.mute)
-                Spacer()
-                HStack { Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.defaultAction).tjButton(TJ.mint, filled: true) }
-            }
-            .frame(width: 330)
-        }
-        .padding(24)
-        .frame(height: 300)
-        .modalStyle(TJ.mint)
-    }
-
-    private func step(_ n: Int, _ text: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text("\(n)").font(.tj(11, weight: .heavy)).foregroundColor(.black)
-                .frame(width: 18, height: 18).background(TJ.mint).clipShape(RoundedRectangle(cornerRadius: 4))
-            Text(text).font(.tj(12.5)).fixedSize(horizontal: false, vertical: true)
-        }
     }
 }
 

@@ -25,6 +25,12 @@ final class TooltipCenter: ObservableObject {
         owner = id
     }
 
+    /// Hides whatever tip is showing, for example when a sheet opens over it.
+    func hideAll() {
+        text = nil
+        owner = nil
+    }
+
     func hide(owner id: UUID) {
         guard owner == id else { return }
         text = nil
