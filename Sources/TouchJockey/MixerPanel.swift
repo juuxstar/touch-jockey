@@ -55,7 +55,7 @@ struct MixerPanel: View {
         return column(label: band == .high ? "HIGH" : band.rawValue.uppercased(), color: TJ.band(band), readout: eqReadout(v)) {
             MixerSlider(value: v, color: TJ.band(band), fill: .fromCentre, detent: 0.5, resetTo: 0.5) { m.setEQ(i, band, $0) }
         }
-        .tip(eqTip(band, deck: m.decks[i].name))
+        .sliderTip(eqTip(band, deck: m.decks[i].name))
     }
 
     private func volumeColumn(_ i: Int) -> some View {
@@ -63,7 +63,7 @@ struct MixerPanel: View {
         return column(label: "VOL", color: TJ.deck(i), readout: faderReadout(v)) {
             MixerSlider(value: v, color: TJ.deck(i), fill: .fromStart, resetTo: 1, wide: true) { m.setVolume(i, $0) }
         }
-        .tip("""
+        .sliderTip("""
             **Deck \(m.decks[i].name) volume** (channel fader): how loud this track is, before the crossfader.
 
             **Top** = full, the normal place for it. Lower it to bring a track in gradually: in progressive house and melodic techno, a slow fader ride over **16 or 32 bars** makes a long, smooth blend.
@@ -169,7 +169,7 @@ struct MixerPanel: View {
         HStack(spacing: 8) {
             Text("A").font(.tj(12, weight: .heavy)).foregroundColor(TJ.a)
             MixerSlider(value: m.crossfader, color: TJ.gold, axis: .horizontal, fill: .none, detent: 0.5, resetTo: 0.5) { m.setCrossfader($0) }
-                .tip("""
+                .sliderTip("""
                     **Crossfader**: blends between deck **A** (left) and deck **B** (right).
 
                     **Centre**: both decks at full volume. Towards one side, the other deck fades out; at the end only that side plays.

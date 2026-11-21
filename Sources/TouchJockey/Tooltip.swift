@@ -81,9 +81,69 @@ private struct TipModifier: ViewModifier {
     }
 }
 
+/// For controls the pointer sits on for a long time (sliders): the tooltip only appears
+/// after the pointer has rested, without moving, for `stillFor` seconds. Any movement,
+/// or pressing to drag, hides it, and it won't come back until the pointer rests again.
+private struct StillTipModifier: ViewModifier {
+    let text: String
+    let stillFor: Double
+    @State private var id = UUID()
+    @State private var frame: CGRect = .zero
+    @State private var lastMove = Date.distantPast
+    @State private var inside = false
+    @State private var pressed = false
+    @Environment(\.tooltipSpaceName) private var space
+
+    func body(content: Content) -> some View {
+        content
+            .background(GeometryReader { g in
+                Color.clear
+                    .onAppear { frame = g.frame(in: .named(space)) }
+                    .onChange(of: g.frame(in: .named(space))) { frame = $0 }
+            })
+            .onContinuousHover { phase in
+                switch phase {
+                case .active:
+                    inside = true
+                    let moved = Date()
+                    lastMove = moved
+                    TooltipCenter.shared.hide(owner: id)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + stillFor) {
+                        // Show only if nothing moved since, the pointer is still here, and no drag is on.
+                        if inside, !pressed, lastMove == moved {
+                            TooltipCenter.shared.show(text, at: frame, in: space, owner: id)
+                        }
+                    }
+                case .ended:
+                    inside = false
+                    TooltipCenter.shared.hide(owner: id)
+                }
+            }
+            .simultaneousGesture(DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    if !pressed { pressed = true; TooltipCenter.shared.hide(owner: id) }
+                }
+                .onEnded { _ in pressed = false; lastMove = Date() })
+            .onDisappear { TooltipCenter.shared.hide(owner: id) }
+            .accessibilityHint(text)
+    }
+}
+
 extension View {
-    /// Shows an app-styled tooltip when the pointer rests on this view.
-    func tip(_ text: String, delay: Double = 0.5) -> some View { modifier(TipModifier(text: text, delay: delay)) }
+    /// Tooltip for sliders and other controls the pointer rests on while using them:
+    /// shown only after the pointer stays still over it for `stillFor` seconds (default 1).
+    func sliderTip(_ text: String, stillFor: Double = 1.0) -> some View {
+        modifier(StillTipModifier(text: text, stillFor: stillFor))
+    }
+
+    /// Tooltip for a control: appears only after the pointer has rested on it, without moving,
+    /// for 1 second, and hides on any movement or press. Use it only where a beginner wouldn't
+    /// understand the control from its label (see AGENTS.md).
+    func tip(_ text: String) -> some View { modifier(StillTipModifier(text: text, stillFor: 1.0)) }
+
+    /// Tooltip shown after a fixed delay, even while the pointer moves. Only for things whose
+    /// whole purpose is to show help on hover, like the ⓘ help icons.
+    func tip(_ text: String, delay: Double) -> some View { modifier(TipModifier(text: text, delay: delay)) }
 
     /// Gives this view (a window's or sheet's root) its own tooltip layer and coordinate space.
     func tooltipScope(_ name: String) -> some View {

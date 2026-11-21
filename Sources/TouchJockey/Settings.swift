@@ -52,16 +52,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .app: return TJ.gold
         }
     }
-
-    var tip: String {
-        switch self {
-        case .connect: return "**Connect a phone**: the code to scan and the steps to use a phone or tablet as a touch controller."
-        case .display: return "**Display**: text size and help icons."
-        case .library: return "**Library**: which music folder to use, and the beat analysis of your tracks."
-        case .playback: return "**Playback**: how the decks behave when Touch Jockey starts."
-        case .app: return "**App**: version, and restarting Touch Jockey."
-        }
-    }
 }
 
 // MARK: - Window
@@ -104,7 +94,6 @@ struct SettingsView: View {
                 Button("Done") { m.showSettings = false }
                     .keyboardShortcut(.defaultAction)
                     .tjButton(TJ.sky, filled: true)
-                    .tip("**Done**: close Settings. Changes are already saved.\n\nShortcut: **Esc** or **Return**")
             }
             .padding(.horizontal, 16).padding(.vertical, 12)
         }
@@ -136,7 +125,6 @@ struct SettingsView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .tip(sec.tip)
             }
             Spacer()
         }
@@ -206,7 +194,6 @@ struct SettingsView: View {
                             copied = true
                         }
                         .tjButton(TJ.mint)
-                        .tip("**Copy** the address, to send it to a device or type it in yourself.")
                     }
                 } else {
                     Text("No network address found. Connect this Mac to Wi-Fi.").font(.tj(13)).foregroundColor(TJ.mute)

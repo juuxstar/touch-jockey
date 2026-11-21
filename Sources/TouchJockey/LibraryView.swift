@@ -35,7 +35,7 @@ struct LibraryView: View {
                     .textFieldStyle(.plain).focused($searchFocused)
                 if !lib.query.isEmpty {
                     Button { lib.query = "" } label: { Image(systemName: "xmark.circle.fill") }
-                        .buttonStyle(.borderless).foregroundColor(TJ.mute).tip("**Clear** the search.")
+                        .buttonStyle(.borderless).foregroundColor(TJ.mute)
                 }
             }
             .padding(.horizontal, 8).frame(height: 30)
