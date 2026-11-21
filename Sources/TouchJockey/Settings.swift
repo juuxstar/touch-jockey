@@ -33,7 +33,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .display: return "Display"
         case .library: return "Library"
         case .playback: return "Playback"
-        case .app: return "App"
+        case .app: return "About"
         }
     }
 
@@ -222,8 +222,36 @@ struct SettingsView: View {
                     .font(.tj(13, weight: .semibold)).monospacedDigit()
                     .foregroundColor(m.surfaces > 0 ? TJ.mint : TJ.mute)
                     .tip("**Connected**: how many phones and tablets have the touch surface open right now.")
+                if m.ladder[.blend] == .mixer, m.devices.count >= 2 { deckPickers }
             }
         }
+    }
+
+    /// One row per connected surface: which deck's mixer controls it shows.
+    private var deckPickers: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("Mixer controls").font(.tj(13, weight: .semibold))
+                InfoTip("""
+                    **Mixer controls per device**: give each phone one deck, and its channel gets the whole screen. **A + B** shows both channels on that device.
+
+                    The **crossfader** shows on every device. You can also choose on the phone itself, under the crossfader on the mixer screen.
+                    """)
+            }
+            ForEach(m.devices) { d in
+                HStack(spacing: 10) {
+                    Image(systemName: d.name.hasPrefix("iPad") ? "ipad" : "iphone").foregroundColor(TJ.mute)
+                    Text(d.name).font(.tj(12.5)).frame(width: 110 * s, alignment: .leading).lineLimit(1)
+                    HStack(spacing: 4) {
+                        ForEach(DeckAssignment.allCases, id: \.self) { a in
+                            let color = a == .a ? TJ.a : a == .b ? TJ.b : TJ.gold
+                            Button(a.label) { m.assign(d.id, a) }.tjButton(color, filled: d.deck == a)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.top, 4)
     }
 
     private var skills: some View {

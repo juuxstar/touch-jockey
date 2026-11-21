@@ -85,27 +85,56 @@ body{height:100vh;display:flex;flex-direction:column;gap:10px;
 .centreGap{flex:none;width:8px}
 .ch{flex:1;display:flex;flex-direction:column;gap:5px;min-width:0;max-width:96px}
 .strip.left{justify-content:flex-start}.strip.right{justify-content:flex-end}
-.chName{text-align:center;font-size:11px;font-weight:800;letter-spacing:.1em;color:var(--c)}
+/* The control's name sits inside it at the bottom, big; white where the level's fill covers it. */
+.mxName{position:absolute;left:0;right:0;bottom:10px;text-align:center;font-size:15px;font-weight:800;letter-spacing:.12em;
+  color:var(--c);pointer-events:none;white-space:nowrap}
+.mx.onFill .mxName{color:#fff}
+.oneDeck .mxName{font-size:20px}
+@media (orientation:landscape){.mxName{bottom:7px;font-size:13px}}
 .mx{position:relative;flex:1;border:2.5px solid var(--c);border-radius:10px;background:#101318;overflow:hidden;touch-action:none}
 .mxFill,.mxDet,.mxLine,.mxVal{position:absolute;pointer-events:none}
+.mxLine{z-index:1}
 .mxFill{left:0;right:0;background:color-mix(in srgb,var(--c) 32%,transparent)}
 .mxDet{left:5px;right:5px;height:1px;background:#ffffff38}
 .mxLine{left:4px;right:4px;height:3px;margin-top:-1.5px;border-radius:2px;background:#fff;box-shadow:0 0 6px var(--c)}
-.mxVal{left:0;right:0;text-align:center;font-size:11.5px;font-weight:600;letter-spacing:-.02em;white-space:nowrap;overflow:hidden}
-.mxVal small{font-size:9px;font-weight:600;margin-left:1px}
+.mxVal{left:0;right:0;top:9px;text-align:center;font-size:14px;font-weight:600;letter-spacing:-.02em;white-space:nowrap;overflow:hidden}
+.mxVal small{font-size:9.5px;font-weight:600;margin-left:1px}
+.oneDeck .mxVal{font-size:17px}
 .mx.isHeld{border-color:#fff}
 .mx.isKill{border-style:dashed;border-color:color-mix(in srgb,var(--c) 55%,transparent)}
 .mx.isKill .mxFill,.mx.isKill .mxLine{display:none}
-.mx.isKill .mxVal{top:50% !important;bottom:auto !important;transform:translateY(-50%);color:var(--c);font-weight:800;letter-spacing:.08em}
+.mx.isKill .mxVal{top:50%;transform:translateY(-50%);color:var(--c);font-weight:800;letter-spacing:.08em}
 .xfRow{flex:none;display:flex;align-items:center;gap:10px;height:54px}
 .xfRow b{font-weight:800;font-size:14px}
 .mx.horiz{height:100%}
 .mx.horiz .mxDet{top:5px;bottom:5px;left:auto;right:auto;width:1px;height:auto}
 .mx.horiz .mxLine{top:4px;bottom:4px;left:auto;right:auto;width:3px;height:auto;margin:0 0 0 -1.5px}
+/* One deck per phone: the other channel and the centre gap go, and the faders widen. */
+.oneDeck .centreGap,.deckA #stripB,.deckB #stripA{display:none}
+.oneDeck .strip{justify-content:center}.oneDeck .ch{max-width:none}
+/* One deck per phone: the header shows only this phone's track (the other phone shows the other),
+   tag on the left, with the status and action beside it sideways or below it upright. */
+.deckA .trk.r,.deckB .trk:not(.r){display:none}
+.oneDeck .top{grid-template-columns:1fr auto}
+.oneDeck .top .trk{grid-column:1;grid-row:1;flex-direction:row;text-align:left}
+.oneDeck .top .mid{grid-column:2;grid-row:1}
+.oneDeck .t1{font-size:16px}
+/* Which deck this phone's mixer controls (shown with two or more phones connected). */
+/* A full-width row under the crossfader: big touch targets (48 px tall, a third of the width each). */
+.seg{flex:none;display:flex;align-items:center;gap:8px;height:48px}.seg[hidden]{display:none}
+.seg span{flex:none;font-size:11.5px;font-weight:600;color:var(--mute);white-space:nowrap}
+.seg button{flex:1;height:100%;border:2.5px solid var(--c);color:var(--c);background:transparent;border-radius:6px;
+  font:800 16px Inter,sans-serif;letter-spacing:.04em}
+.seg button.on{background:var(--c);color:#0b0c0f}
+/* Upright: the deck buttons get their own row. Sideways there's no height to spare, so they sit beside the crossfader. */
+.mxBottom{flex:none;display:flex;flex-direction:column;gap:10px}
+@media (orientation:landscape){.mxBottom{flex-direction:row;align-items:center}.mxBottom .xfRow{flex:1}.mxBottom .seg{width:min(340px,40%);height:54px}}
 @media (orientation:portrait){
   .top{grid-template-columns:1fr 1fr;row-gap:8px}
   .mid{grid-column:1 / span 2;grid-row:2;flex-direction:row;justify-content:center;gap:12px}
   .trk.r{grid-column:2;grid-row:1}
+  .oneDeck .top{grid-template-columns:1fr}
+  .oneDeck .top .mid{grid-column:1;grid-row:2}
 }
 </style></head>
 <body>
@@ -121,7 +150,8 @@ body{height:100vh;display:flex;flex-direction:column;gap:10px;
 <div class="lanes" id="lanes"></div>
 <div class="mixer" id="mixer" hidden>
   <div class="strips"><div class="strip left" id="stripA"></div><div class="centreGap"></div><div class="strip right" id="stripB"></div></div>
-  <div class="xfRow" id="xfRow"><b style="color:var(--A)">A</b><b style="color:var(--B)">B</b></div>
+  <div class="mxBottom"><div class="xfRow" id="xfRow"><b style="color:var(--A)">A</b><b style="color:var(--B)">B</b></div>
+  <div class="seg" id="deckSeg" hidden><span id="myName"></span><button data-d="A" style="--c:var(--A)">A</button><button data-d="both" style="--c:var(--gold)">A+B</button><button data-d="B" style="--c:var(--B)">B</button></div></div>
 </div>
 <div class="foot">
   <div class="beats" id="beats"><span id="barNo">BAR</span><i></i><i></i><i></i><i></i></div>
@@ -136,6 +166,7 @@ body{height:100vh;display:flex;flex-direction:column;gap:10px;
   <p><b>Classic blend:</b> bring the new track in with its LOW killed, then swap the basslines on a phrase.</p>
   <p>The <b>crossfader</b> along the bottom blends A and B. In the centre both play at full.</p>
   <p><b>Drag</b> to move, <b>double-tap</b> to reset. To finish, stop the old track on the laptop.</p>
+  <p>With two phones, give each one a deck with the <b>A</b> / <b>B</b> buttons under the crossfader, so each channel gets the whole screen.</p>
   </div>
   <div id="tipLanes">
   <b>How the lanes work</b>
@@ -194,7 +225,7 @@ function renderLane(band) {
 function send(msg) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg)); }
 function connect() {
   ws = new WebSocket(`ws://${location.hostname}:${Number(location.port || 80) + 1}`);
-  ws.onopen = () => $("conn").classList.add("hide");
+  ws.onopen = () => { $("conn").classList.add("hide"); send({ t: "hello", device: deviceId, kind: deviceKind() }); };
   ws.onclose = () => { $("conn").classList.remove("hide"); setTimeout(connect, 800); };
   ws.onmessage = e => {
     const m = JSON.parse(e.data);
@@ -348,7 +379,7 @@ function eqText(v) {
   return Math.abs(db) < 0.5 ? "0 dB" : minus(`${db > 0 ? "+" : ""}${Math.round(db)} dB`);
 }
 function volText(v) {
-  const g = v * v; if (g === 0) return "−∞";
+  const g = v * v; if (g < 0.001) return "−∞";   // below −60 dB it is silence for all purposes
   const db = 20 * Math.log10(g);
   return Math.abs(db) < 0.5 ? "0 dB" : minus(`${Math.round(db)} dB`);
 }
@@ -357,12 +388,11 @@ function mkControl(parent, c, label, color, horiz) {
   const el = document.createElement("div");
   el.className = "mx" + (horiz ? " horiz" : "");
   el.style.setProperty("--c", `var(${color})`);
-  el.innerHTML = `<div class="mxFill"></div>${c.kind !== "vol" ? '<div class="mxDet"></div>' : ""}<div class="mxLine"></div><div class="mxVal"></div>`;
+  el.innerHTML = `<div class="mxFill"></div>${c.kind !== "vol" ? '<div class="mxDet"></div>' : ""}<div class="mxLine"></div><div class="mxVal"></div>${horiz ? "" : `<div class="mxName">${label}</div>`}`;
   if (horiz) { el.style.flex = "1"; parent.insertBefore(el, parent.lastElementChild); }
   else {
     wrap.className = "ch"; wrap.style.setProperty("--c", `var(${color})`);
     wrap.appendChild(el);
-    const n = document.createElement("div"); n.className = "chName"; n.textContent = label; wrap.appendChild(n);
     parent.appendChild(wrap);
   }
   el.dataset.id = c.id;
@@ -398,8 +428,10 @@ function renderControl(c) {
     const txt = c.kind === "vol" ? volText(v) : eqText(v), unit = txt.endsWith(" dB");
     val.textContent = unit ? txt.slice(0, -3) : txt;
     if (unit) { const u = document.createElement("small"); u.textContent = "dB"; val.appendChild(u); }
-    // Keep the readout out of the indicator's way: at the top when the level is low.
-    if (v < 0.6) { val.style.top = "6px"; val.style.bottom = ""; } else { val.style.top = ""; val.style.bottom = "6px"; }
+    // The readout sits at the top, and drops just below the indicator when it's up there.
+    val.style.top = v > 0.82 ? `calc(${at(v)} + 6px)` : "";
+    // The name sits in the bottom ~12% of the control: white once the fill reaches it.
+    el.classList.toggle("onFill", c.kind === "vol" ? v > 0.06 : v < 0.12 && eqGain(v) > 0);
   }
   el.classList.toggle("isKill", c.kind === "eq" && eqGain(v) === 0);
   el.classList.toggle("isHeld", !!c.drag);
@@ -410,6 +442,38 @@ function sendControl(c) {
   else if (c.kind === "vol") send({ t: "volume", deck, v: c.v });
   else send({ t: "xfade", v: c.v });
 }
+// A stable id for this phone (kept in its storage), so the laptop remembers its deck across reloads.
+const deviceId = (() => {
+  const fresh = Math.random().toString(36).slice(2, 12);
+  try { let v = localStorage.getItem("tjDevice"); if (!v) { v = fresh; localStorage.setItem("tjDevice", v); } return v; }
+  catch (_) { return fresh; }
+})();
+function deviceKind() {
+  const ua = navigator.userAgent;
+  if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return "iPad";
+  if (/iPhone/.test(ua)) return "iPhone";
+  if (/Android/.test(ua)) return /Mobile/.test(ua) ? "Android phone" : "Android tablet";
+  return "Browser";
+}
+let myDeck = "both";
+function renderDeckChoice() {
+  const devs = state.devices || [], me = devs.find(d => d.id === deviceId);
+  const split = mixerMode && devs.length >= 2 && !!me;
+  $("deckSeg").hidden = !split;
+  const deck = split ? me.deck : "both";
+  if (me) $("myName").textContent = me.name;
+  document.querySelectorAll("#deckSeg button").forEach(b => b.classList.toggle("on", b.dataset.d === deck));
+  if (deck !== myDeck) {
+    myDeck = deck;
+    document.body.classList.toggle("oneDeck", deck !== "both");
+    document.body.classList.toggle("deckA", deck === "A");
+    document.body.classList.toggle("deckB", deck === "B");
+  }
+}
+$("deckSeg").addEventListener("pointerdown", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  e.stopPropagation(); send({ t: "assign", deck: b.dataset.d });
+});
 function renderMixer() {
   const m = !!(state.ladder && state.ladder.blend === "mixer");
   if (m !== mixerMode) {
@@ -427,6 +491,7 @@ function renderMixer() {
     }
     renderControl(c);
   }
+  renderDeckChoice();
 }
 
 const mxPointers = new Map(); // pointerId -> {c, start, v0, len, moved, t0}

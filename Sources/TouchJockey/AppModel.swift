@@ -19,6 +19,16 @@ final class AppModel: ObservableObject {
         var atCue = true
     }
 
+    /// A connected phone or tablet, and which deck's mixer controls it shows.
+    struct SurfaceDevice: Identifiable, Equatable {
+        /// Stable id the page keeps in its own storage, so a reload keeps its assignment.
+        let id: String
+        let client: ControlServer.ClientID
+        /// "iPhone", "iPad 2" … numbered when two of the same kind are connected.
+        var name: String
+        var deck: DeckAssignment
+    }
+
     let mix = MixEngine()
     let library = LibraryModel()
     /// File loaded on each deck, for marking it in the library.
@@ -45,6 +55,10 @@ final class AppModel: ObservableObject {
     @Published var ladder = SkillLadder()
     @Published var beat: Double?
     @Published var surfaces = 0
+    /// Surfaces that said hello, in the order they connected.
+    @Published var devices: [SurfaceDevice] = []
+    /// Assignments by device id, kept while the app runs so a phone that reloads gets its deck back.
+    private var assignments: [String: DeckAssignment] = [:]
     @Published var status = "Load a track into each deck."
     @Published var connectURL: String?
 
@@ -155,6 +169,24 @@ final class AppModel: ObservableObject {
 
     // MARK: Surfaces
 
+    /// Which deck a surface's mixer screen controls. Only matters at the mixer blend level with
+    /// two or more surfaces connected: one phone per deck gives each channel the whole screen.
+    func assign(_ deviceID: String, _ deck: DeckAssignment) {
+        assignments[deviceID] = deck
+        if let i = devices.firstIndex(where: { $0.id == deviceID }) { devices[i].deck = deck }
+    }
+
+    private func hello(_ client: ControlServer.ClientID, deviceID: String, kind: String) {
+        devices.removeAll { $0.client == client || $0.id == deviceID }
+        let same = devices.filter { $0.name == kind || $0.name.hasPrefix(kind + " ") }.count
+        devices.append(SurfaceDevice(id: deviceID, client: client, name: same == 0 ? kind : "\(kind) \(same + 1)",
+                                     deck: assignments[deviceID] ?? .both))
+        // Two surfaces, neither assigned yet: split them, first A, second B.
+        if devices.count == 2, devices.allSatisfy({ assignments[$0.id] == nil }) {
+            assign(devices[0].id, .a); assign(devices[1].id, .b)
+        }
+    }
+
     private func handle(_ id: ControlServer.ClientID, _ msg: [String: Any]) {
         let band = (msg["band"] as? String).flatMap(Band.init(rawValue:))
         // Mixer messages name the deck as 0/1 or "A"/"B".
@@ -188,8 +220,16 @@ final class AppModel: ObservableObject {
             if let deck, let v = msg["v"] as? Double, free("vol:\(deckName)") { mix.setVolume(deck: deck, v) }
         case "xfade":
             if let v = msg["v"] as? Double, free("xfade") { mix.setCrossfader(v) }
+        case "hello":
+            if let device = msg["device"] as? String, !device.isEmpty {
+                hello(id, deviceID: String(device.prefix(64)), kind: String(((msg["kind"] as? String) ?? "Phone").prefix(24)))
+            }
+        case "assign":
+            if let device = devices.first(where: { $0.client == id }),
+               let raw = msg["deck"] as? String, let a = DeckAssignment(rawValue: raw) { assign(device.id, a) }
         case "disconnect":
             for (b, owner) in owners where owner == id { owners[b] = nil }
+            devices.removeAll { $0.client == id }
         default:
             break
         }
@@ -232,6 +272,8 @@ final class AppModel: ObservableObject {
                 ["name": d.name, "title": d.title, "artist": d.artist, "bpm": d.playingBPM ?? 0, "playing": d.isPlaying, "loaded": d.grid != nil, "beat": d.currentBeat() ?? -1]
             },
             "surfaces": surfaces,
+            // Each surface finds itself by its device id: [{"id", "name", "deck": "A" | "B" | "both"}].
+            "devices": devices.map { ["id": $0.id, "name": $0.name, "deck": $0.deck.rawValue] },
             // Mixer: EQ per deck (0 kill, 0.5 unity, 1 +6 dB), channel faders, crossfader.
             "eq": mix.eq.map { Dictionary(uniqueKeysWithValues: $0.map { ($0.key.rawValue, $0.value) }) },
             "volume": mix.volumes,
@@ -254,4 +296,10 @@ final class AppModel: ObservableObject {
             awakeActivity = nil
         }
     }
+}
+
+/// Which deck's mixer controls a surface shows.
+enum DeckAssignment: String, CaseIterable {
+    case a = "A", both, b = "B"
+    var label: String { self == .both ? "A + B" : rawValue }
 }

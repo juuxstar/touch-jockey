@@ -73,7 +73,15 @@ enum AppRestart {
         // Wait for this process to exit, then open the bundle again.
         task.arguments = ["-c", "while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.1; done; open \"$0\"", path]
         try? task.run()
-        NSApplication.shared.terminate(nil)
+        // macOS refuses to quit while a sheet is open (the Settings sheet, where the Restart
+        // button lives), so close every sheet first, then quit; force it if quitting still stalls.
+        for window in NSApp.windows {
+            if let sheet = window.attachedSheet { window.endSheet(sheet) }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            NSApplication.shared.terminate(nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { exit(0) }
+        }
     }
 }
 
