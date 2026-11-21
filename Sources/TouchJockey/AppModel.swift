@@ -11,9 +11,18 @@ final class AppModel: ObservableObject {
         var bpm: Double?
         var playing = false
         var loading = false
+        /// The tempo detection wasn't confident; sync may be off.
+        var bpmUnsure = false
+        var paused = false
+        var atCue = true
     }
 
     let mix = MixEngine()
+    let library = LibraryModel()
+    /// File loaded on each deck, for marking it in the library.
+    @Published var loadedPaths: [String?] = [nil, nil]
+    @Published var showConnectHelp = false
+    @Published var syncOn = true
     private(set) var server: ControlServer?
 
     @Published var decks = [DeckInfo(name: "A"), DeckInfo(name: "B")]
@@ -71,14 +80,6 @@ final class AppModel: ObservableObject {
 
     // MARK: Window actions
 
-    func chooseTrack(for deck: Int) {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.audio]
-        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Music")
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        load(url, into: deck)
-    }
-
     func load(_ url: URL, into deck: Int) {
         decks[deck].loading = true
         status = "Analysing \(url.deletingPathExtension().lastPathComponent)…"
@@ -86,14 +87,28 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             self.decks[deck].loading = false
             switch result {
-            case .success(let g): self.status = String(format: "Deck %@: %.2f BPM, first downbeat at %.2fs.", self.mix.decks[deck].name, g.bpm, g.firstBeat)
+            case .success(let g):
+                self.loadedPaths[deck] = url.path
+                self.library.noteLoaded(path: url.path, bpm: g.bpm, confidence: g.confidence)
+                self.decks[deck].bpmUnsure = g.confidence < 0.25
+                self.status = String(format: "Deck %@: %.2f BPM, first downbeat at %.2fs.", self.mix.decks[deck].name, g.bpm, g.firstBeat)
             case .failure(let e): self.status = "Couldn't load that file: \(e.localizedDescription)"
             }
             self.refresh()
         }
     }
 
+    /// Where a double-clicked track goes: the outgoing deck if it's empty, otherwise the incoming one.
+    var incomingForLoading: Int { mix.decks[mix.outgoing].grid == nil ? mix.outgoing : mix.incoming }
+
     func playOutgoing() { mix.playOutgoing() }
+    func togglePlay(_ i: Int) {
+        if mix.previewing.contains(i) { mix.keepPreviewPlaying(deck: i); return }
+        mix.decks[i].isPlaying ? mix.pause(deck: i) : mix.play(deck: i)
+    }
+    func cueDown(_ i: Int) { mix.cueDown(deck: i) }
+    func cueUp(_ i: Int) { mix.cueUp(deck: i) }
+    func toggleSync() { mix.setSync(!mix.syncOn); syncOn = mix.syncOn }
     func cueIncoming(every beats: Double) { mix.cueIncoming(every: beats) }
     func stopAll() { mix.stopAll() }
     func setLane(_ b: Band, _ v: Double) { mix.setLane(b, v) }
@@ -117,7 +132,7 @@ final class AppModel: ObservableObject {
         case "stable":
             mix.backToStable()
         case "play":
-            mix.playOutgoing()
+            mix.play(deck: mix.outgoing)
         case "cue":
             mix.cueIncoming(every: (msg["every"] as? Double) ?? 32)
         case "disconnect":
@@ -136,6 +151,8 @@ final class AppModel: ObservableObject {
             decks[i].artist = d.artist
             decks[i].bpm = d.playingBPM
             decks[i].playing = d.isPlaying
+            decks[i].paused = d.pausedBeat != nil
+            decks[i].atCue = !d.isPlaying && d.pausedBeat == nil
         }
     }
 

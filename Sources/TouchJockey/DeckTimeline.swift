@@ -11,8 +11,19 @@ struct DeckTimeline: View {
     var beatsVisible: Double = 48
 
     var body: some View {
-        TimelineView(.animation) { _ in
-            Canvas { ctx, size in draw(ctx, size) }
+        // Reading the frame's date inside the Canvas makes SwiftUI redraw it every frame;
+        // without that it treats the drawing as unchanged and the waveform stands still.
+        TimelineView(.animation) { timeline in
+            Canvas { ctx, size in
+                _ = timeline.date
+                draw(ctx, size)
+            }
+            // Clicking the timeline cues the incoming track at the next phrase (when it isn't playing yet).
+            .contentShape(Rectangle())
+            .onTapGesture {
+                let inc = mix.decks[mix.incoming]
+                if inc.grid != nil, !inc.isPlaying, mix.decks[mix.outgoing].isPlaying { mix.cueIncoming(every: 32) }
+            }
         }
     }
 
@@ -42,25 +53,40 @@ struct DeckTimeline: View {
             let alpha = phrase ? 0.32 : bar ? 0.14 : 0.05
             ctx.fill(Path(CGRect(x: x - w / 2, y: 0, width: w, height: size.height)), with: .color(.white.opacity(alpha)))
             if phrase {
-                ctx.draw(Text("BAR \(b / 4 + 1)").font(.system(size: 9.5, weight: .bold)).foregroundColor(.white.opacity(0.55)),
+                ctx.draw(Text("BAR \(b / 4 + 1)").font(.tj(9.5, weight: .bold)).foregroundColor(.white.opacity(0.55)),
                          at: CGPoint(x: x + 4, y: 2), anchor: .topLeading)
             }
         }
 
+        // Fixed positions: deck A always on top, deck B always below.
+        func laneRect(_ deck: Int) -> CGRect {
+            CGRect(x: 0, y: deck == 0 ? 0 : laneH + laneGap, width: size.width, height: laneH)
+        }
+        let incTop = laneRect(mix.incoming).minY
         lane(ctx, deck: out, color: TJ.deck(mix.outgoing), now: outNow,
-             rect: CGRect(x: 0, y: 0, width: size.width, height: laneH), ppb: ppb, playX: playX, dim: false)
+             rect: laneRect(mix.outgoing), ppb: ppb, playX: playX, dim: false)
         lane(ctx, deck: inc, color: TJ.deck(mix.incoming), now: incNow,
-             rect: CGRect(x: 0, y: laneH + laneGap, width: size.width, height: laneH), ppb: ppb, playX: playX, dim: incPreview)
+             rect: laneRect(mix.incoming), ppb: ppb, playX: playX, dim: incPreview)
 
         // Where the incoming track starts.
         if inc.grid != nil {
             let x = playX + CGFloat(startBeat - outNow) * ppb
             if x > 0, x < size.width {
-                ctx.fill(Path(CGRect(x: x - 1, y: laneH + laneGap, width: 2, height: laneH)), with: .color(TJ.gold))
-                let label = incPreview ? "\(inc.name) STARTS HERE (NEXT PHRASE)" : mix.incomingStartBeat != nil ? "\(inc.name) STARTS HERE" : ""
-                if !label.isEmpty {
-                    ctx.draw(Text(label).font(.system(size: 9.5, weight: .heavy)).foregroundColor(TJ.gold),
-                             at: CGPoint(x: x + 5, y: laneH + laneGap + 3), anchor: .topLeading)
+                var line = Path()
+                line.move(to: CGPoint(x: x, y: incTop))
+                line.addLine(to: CGPoint(x: x, y: incTop + laneH))
+                if incPreview {
+                    // Not scheduled: a dashed preview of the next phrase, which moves on as the music plays.
+                    ctx.stroke(line, with: .color(TJ.gold.opacity(0.6)), style: StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
+                    if mix.decks[mix.outgoing].isPlaying {
+                        ctx.draw(Text("\(inc.name) NOT CUED · CLICK HERE OR PRESS NEXT PHRASE TO START IT AT THIS PHRASE")
+                                    .font(.tj(9.5, weight: .heavy)).foregroundColor(TJ.gold.opacity(0.75)),
+                                 at: CGPoint(x: x + 5, y: incTop + 3), anchor: .topLeading)
+                    }
+                } else if mix.incomingStartBeat != nil {
+                    ctx.stroke(line, with: .color(TJ.gold), lineWidth: 2)
+                    ctx.draw(Text("\(inc.name) STARTS HERE").font(.tj(9.5, weight: .heavy)).foregroundColor(TJ.gold),
+                             at: CGPoint(x: x + 5, y: incTop + 3), anchor: .topLeading)
                 }
             }
         }
@@ -73,7 +99,7 @@ struct DeckTimeline: View {
                       rect: CGRect, ppb: CGFloat, playX: CGFloat, dim: Bool) {
         ctx.fill(Path(roundedRect: rect, cornerRadius: 6), with: .color(.black.opacity(0.35)))
         guard let g = deck.grid, let wf = deck.waveform else {
-            ctx.draw(Text("Deck \(deck.name): load a track").font(.system(size: 12)).foregroundColor(TJ.mute),
+            ctx.draw(Text("Deck \(deck.name): load a track").font(.tj(12)).foregroundColor(TJ.mute),
                      at: CGPoint(x: rect.midX, y: rect.midY))
             return
         }
@@ -93,14 +119,14 @@ struct DeckTimeline: View {
             }
             x += step
         }
-        let o = dim ? 0.45 : 1.0
+        let o = dim ? 0.3 : 1.0
         ctx.fill(full, with: .color(color.opacity(0.35 * o)))
         ctx.fill(low, with: .color(color.opacity(0.9 * o)))
-        ctx.draw(Text(deck.name).font(.system(size: 11, weight: .heavy)).foregroundColor(.black),
+        ctx.draw(Text(deck.name).font(.tj(11, weight: .heavy)).foregroundColor(.black),
                  at: CGPoint(x: rect.minX + 14, y: rect.minY + 13))
         ctx.fill(Path(roundedRect: CGRect(x: rect.minX + 5, y: rect.minY + 4, width: 18, height: 18), cornerRadius: 4),
                  with: .color(color))
-        ctx.draw(Text(deck.name).font(.system(size: 11, weight: .heavy)).foregroundColor(.black),
+        ctx.draw(Text(deck.name).font(.tj(11, weight: .heavy)).foregroundColor(.black),
                  at: CGPoint(x: rect.minX + 14, y: rect.minY + 13))
     }
 }
