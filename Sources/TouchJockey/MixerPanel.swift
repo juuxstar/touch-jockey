@@ -1,41 +1,71 @@
 import SwiftUI
 import TJCore
 
-/// A two-channel DJ mixer: a channel strip per deck (HIGH, MID, LOW EQ and a volume
-/// fader), a crossfader along the bottom, and in the middle a compact readout of the
-/// phone's handoff lanes, which multiply with the mixer (see MixEngine).
+/// The blend panel. What it shows depends on the user's **blend** level (`SkillLadder`):
+///
+/// - **Handoff** (beginner): the phone's three handoff lanes, each with a slider for mouse
+///   use and a Flick button, plus Back to and Stop all.
+/// - **Mixer**: a two-channel DJ mixer, a channel strip per deck (HIGH, MID, LOW EQ and a
+///   volume fader) and a crossfader along the bottom.
 struct MixerPanel: View {
     @EnvironmentObject var m: AppModel
 
     private static let bands: [Band] = [.high, .mid, .low]
+    private var mixerMode: Bool { m.ladder.blend == .mixer }
 
     var body: some View {
         Panel(color: TJ.lav, fillHeight: true) {
             HStack(spacing: 6) {
-                Cap(text: "Mixer")
-                InfoTip("""
-                    **Mixer**: one **channel strip** per deck, deck **A** on the left and **B** on the right, like the mixer in a DJ booth.
+                Cap(text: mixerMode ? "Mixer" : "Handoff")
+                if mixerMode {
+                    InfoTip("""
+                        **Mixer**: one **channel strip** per deck, deck **A** on the left and **B** on the right, like the mixer in a DJ booth.
 
-                    **EQ** (equaliser): each strip splits its track into three bands. **HIGH** is hi-hats and cymbals, **MID** is vocals, leads and chords, **LOW** is the kick and bassline.
+                        **EQ** (equaliser): each strip splits its track into three bands. **HIGH** is hi-hats and cymbals, **MID** is vocals, leads and chords, **LOW** is the kick and bassline.
 
-                    **Centre** leaves a band as it is. **Down** turns it down; at the **bottom** it's **killed** (silent). **Up** boosts it a little (+6 dB), so use that sparingly.
+                        **Centre** leaves a band as it is. **Down** turns it down; at the **bottom** it's **killed** (silent). **Up** boosts it a little (+6 dB), so use that sparingly.
 
-                    **Classic house blend**: bring the incoming track in with its **LOW killed**, let the hats and percussion ride together, then **swap the basslines** on a phrase: kill the old LOW as you open the new one.
+                        **Classic house blend**: bring the incoming track in with its **LOW killed**, let the hats and percussion ride together, then **swap the basslines** on a phrase: kill the old LOW as you open the new one.
 
-                    **Double-click** any control to reset it.
-                    """)
+                        **Finishing**: stop or pause the old track and the one still playing becomes the **master**.
+
+                        **Double-click** any control to reset it. Want the handoff lanes back? **Settings → Your skills**.
+                        """)
+                    Text("\(m.decks[m.outgoing].name) master · \(m.decks[1 - m.outgoing].name) incoming")
+                        .font(.tj(11, weight: .semibold)).foregroundColor(TJ.mute).lineLimit(1)
+                } else {
+                    InfoTip("""
+                        **Handoff lanes**: the beginner's way to blend. Each lane moves one band (**HIGH**, **MID**, **LOW**) from deck **A** (left) to deck **B** (right). Drag them on the phone, or here with the mouse.
+
+                        **Finishing**: when every lane reaches the incoming deck, the handoff ends on the next bar and the decks swap roles.
+
+                        **Flick** swaps a band in one go. Use it on **LOW** for a clean bass swap.
+
+                        **Ready for more?** When you can blend a whole track without thinking about the lanes, move up to the full **mixer** in **Settings → Your skills**.
+                        """)
+                    Text("\(m.decks[m.outgoing].name) → \(m.decks[1 - m.outgoing].name)")
+                        .font(.tj(11, weight: .semibold)).foregroundColor(TJ.mute).lineLimit(1)
+                }
                 Spacer()
-                Button("Back to \(m.decks[m.outgoing].name)") { m.mix.backToStable() }.tjButton(TJ.deck(m.outgoing))
-                    .tip("**Back to \(m.decks[m.outgoing].name)**: move every handoff lane back to the outgoing deck, undoing the handoff so far.\n\nSame as a **two-finger tap** on the phone. The mixer's EQ and faders stay where they are.")
+                if !mixerMode {
+                    Button("Back to \(m.decks[m.outgoing].name)") { m.mix.backToStable() }.tjButton(TJ.deck(m.outgoing))
+                        .tip("**Back to \(m.decks[m.outgoing].name)**: move every handoff lane back to the outgoing deck, undoing the handoff so far.\n\nSame as a **two-finger tap** on the phone.")
+                }
                 Button("Stop all") { m.stopAll() }.tjButton(TJ.rose)
-                    .tip("**Stop all**: stop both decks, send them back to bar 1, and reset the handoff lanes.\n\nThe mixer's EQ and faders stay where they are.")
+                    .tip(mixerMode
+                         ? "**Stop all**: stop both decks and send them back to bar 1.\n\nThe mixer's EQ and faders stay where they are."
+                         : "**Stop all**: stop both decks, send them back to bar 1, and reset the handoff lanes.")
             }
-            HStack(alignment: .top, spacing: 14) {
-                channelStrip(0)
-                handoffReadout.frame(maxWidth: .infinity)
-                channelStrip(1)
+            if mixerMode {
+                HStack(alignment: .top, spacing: 14) {
+                    channelStrip(0)
+                    Spacer(minLength: 0)
+                    channelStrip(1)
+                }
+                crossfaderRow
+            } else {
+                handoffLanes
             }
-            crossfaderRow
         }
     }
 
@@ -52,16 +82,17 @@ struct MixerPanel: View {
 
     private func eqColumn(_ i: Int, _ band: Band) -> some View {
         let v = m.eq[i][band] ?? 0.5
-        return column(label: band == .high ? "HIGH" : band.rawValue.uppercased(), color: TJ.band(band), readout: eqReadout(v)) {
-            MixerSlider(value: v, color: TJ.band(band), fill: .fromCentre, detent: 0.5, resetTo: 0.5) { m.setEQ(i, band, $0) }
+        return column(label: band == .high ? "HIGH" : band.rawValue.uppercased(), color: TJ.band(band)) {
+            MixerSlider(value: v, color: TJ.band(band), fill: .fromCentre, detent: 0.5, resetTo: 0.5,
+                        readout: eqReadout(v), killed: MixEngine.eqGain(v) == 0) { m.setEQ(i, band, $0) }
         }
         .sliderTip(eqTip(band, deck: m.decks[i].name))
     }
 
     private func volumeColumn(_ i: Int) -> some View {
         let v = m.volumes[i]
-        return column(label: "VOL", color: TJ.deck(i), readout: faderReadout(v)) {
-            MixerSlider(value: v, color: TJ.deck(i), fill: .fromStart, resetTo: 1, wide: true) { m.setVolume(i, $0) }
+        return column(label: "VOL", color: TJ.deck(i)) {
+            MixerSlider(value: v, color: TJ.deck(i), fill: .fromStart, resetTo: 1, readout: faderReadout(v)) { m.setVolume(i, $0) }
         }
         .sliderTip("""
             **Deck \(m.decks[i].name) volume** (channel fader): how loud this track is, before the crossfader.
@@ -72,15 +103,13 @@ struct MixerPanel: View {
             """)
     }
 
-    private func column<S: View>(label: String, color: Color, readout: String, @ViewBuilder slider: () -> S) -> some View {
-        VStack(spacing: 3) {
+    private func column<S: View>(label: String, color: Color, @ViewBuilder slider: () -> S) -> some View {
+        VStack(spacing: 4) {
             slider()
             Text(label).font(.tj(10, weight: .heavy)).tracking(0.6).foregroundColor(color)
                 .lineLimit(1).minimumScaleFactor(0.7)
-            Text(readout).font(.tj(10)).monospacedDigit().foregroundColor(TJ.mute)
-                .lineLimit(1).minimumScaleFactor(0.7)
         }
-        .frame(width: 34)
+        .frame(width: MixerSlider.columnWidth)
     }
 
     private func eqTip(_ band: Band, deck: String) -> String {
@@ -112,47 +141,37 @@ struct MixerPanel: View {
         let g = MixEngine.eqGain(v)
         if g == 0 { return "KILL" }
         let db = 20 * log10(g)
-        return abs(db) < 0.5 ? "0 dB" : String(format: "%+.0f", db).replacingOccurrences(of: "-", with: "−")
+        return abs(db) < 0.5 ? "0 dB" : String(format: "%+.0f dB", db).replacingOccurrences(of: "-", with: "−")
     }
 
     private func faderReadout(_ v: Double) -> String {
         let g = MixEngine.faderGain(v)
         if g == 0 { return "−∞" }
         let db = 20 * log10(g)
-        return abs(db) < 0.5 ? "0 dB" : String(format: "%.0f", db).replacingOccurrences(of: "-", with: "−")
+        return abs(db) < 0.5 ? "0 dB" : String(format: "%.0f dB", db).replacingOccurrences(of: "-", with: "−")
     }
 
-    // MARK: Handoff readout
+    // MARK: Handoff lanes
 
-    /// The phone's lanes, read-only, with Flick buttons.
-    private var handoffReadout: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Cap(text: "Handoff")
-                Text("\(m.decks[m.outgoing].name) → \(m.decks[1 - m.outgoing].name) · phone")
-                    .font(.tj(11, weight: .semibold)).foregroundColor(TJ.mute).lineLimit(1)
-                InfoTip("""
-                    **Handoff lanes**: the phone's way of mixing. Each lane moves one band (**HIGH**, **MID**, **LOW**) from deck **A** (left) to deck **B** (right). The little bars here show where the phone has them.
-
-                    **They work together with the mixer**: a band is as loud as its lane lets it be **times** its EQ, and a deck is as loud as its fader **times** the crossfader. So a band killed on the EQ stays silent whatever the lane does, and a lane on deck A silences that band on B even with B's EQ up.
-
-                    **Finishing**: when every lane reaches the incoming deck, the handoff ends on the next bar and the decks swap roles. Only the lanes do this, not the faders.
-
-                    **No phone?** Use **Flick** to swap a band on the next bar.
-                    """)
-            }
+    /// The phone's lanes, with a slider each for mouse use and a Flick button.
+    private var handoffLanes: some View {
+        VStack(alignment: .leading, spacing: 6) {
             ForEach(Self.bands, id: \.self) { band in
                 let v = m.lanes[band] ?? 0
-                HStack(spacing: 6) {
-                    Text(band.rawValue.uppercased()).font(.tj(10, weight: .heavy)).tracking(1)
-                        .foregroundColor(.black).frame(width: 44 * UIScale.current, height: 18 * UIScale.current).background(TJ.band(band))
+                HStack(spacing: 8) {
+                    Text(band == .high ? "HIGHS" : band == .mid ? "MIDS" : "LOWS").font(.tj(10, weight: .heavy)).tracking(1)
+                        .foregroundColor(.black).frame(width: 52 * UIScale.current, height: 20 * UIScale.current).background(TJ.band(band))
                         .clipShape(RoundedRectangle(cornerRadius: 6))
-                    Text("A").font(.tj(10, weight: .heavy)).foregroundColor(TJ.a)
-                    LaneMeter(value: v, color: TJ.band(band))
-                        .tip("**\(band.rawValue.uppercased()) lane**: \(laneReadout(v)).\n\nMoved by the phone, or by **Flick**. Left is deck **A**, right is deck **B**.")
-                    Text("B").font(.tj(10, weight: .heavy)).foregroundColor(TJ.b)
+                    Text("A").font(.tj(11, weight: .heavy)).foregroundColor(TJ.a)
+                    MixerSlider(value: v, color: TJ.band(band), axis: .horizontal, fill: .none, detent: 0.5,
+                                resetTo: m.mix.laneEnd(forDeck: m.outgoing), readout: laneReadout(v),
+                                tint: MixerSlider.blend(v)) { m.setLane(band, $0) }
+                        .sliderTip("**\(band.rawValue.uppercased()) lane**: left is deck **A**, right is deck **B**. Drag to hand this band over.\n\n**Double-click** to send it back to the outgoing deck.")
+                    Text("B").font(.tj(11, weight: .heavy)).foregroundColor(TJ.b)
                     Button("Flick") { m.flick(band) }.tjButton(TJ.band(band))
-                        .tip("**Flick \(band.rawValue.uppercased())**: swap this band to the other deck exactly on the **next bar**, like flicking the lane on the phone.\n\nUse it on **LOW** for a clean bass swap on the downbeat.")
+                        .tip(m.ladder.timing == .free
+                             ? "**Flick \(band.rawValue.uppercased())**: swap this band to the other deck **right now**.\n\nYour timing decides where it lands, so press it on the downbeat."
+                             : "**Flick \(band.rawValue.uppercased())**: swap this band to the other deck exactly on the **next bar**, like flicking the lane on the phone.\n\nUse it on **LOW** for a clean bass swap on the downbeat.")
                 }
             }
         }
@@ -160,7 +179,7 @@ struct MixerPanel: View {
 
     /// "all A", "all B", or how much of the band is on B.
     private func laneReadout(_ v: Double) -> String {
-        v <= 0.005 ? "all on A" : v >= 0.995 ? "all on B" : String(format: "%.0f%% on B", v * 100)
+        v <= 0.005 ? "all A" : v >= 0.995 ? "all B" : String(format: "%.0f%% B", v * 100)
     }
 
     // MARK: Crossfader
@@ -168,7 +187,8 @@ struct MixerPanel: View {
     private var crossfaderRow: some View {
         HStack(spacing: 8) {
             Text("A").font(.tj(12, weight: .heavy)).foregroundColor(TJ.a)
-            MixerSlider(value: m.crossfader, color: TJ.gold, axis: .horizontal, fill: .none, detent: 0.5, resetTo: 0.5) { m.setCrossfader($0) }
+            MixerSlider(value: m.crossfader, color: TJ.gold, axis: .horizontal, fill: .none, detent: 0.5, resetTo: 0.5,
+                        tint: MixerSlider.blend(m.crossfader)) { m.setCrossfader($0) }
                 .sliderTip("""
                     **Crossfader**: blends between deck **A** (left) and deck **B** (right).
 
@@ -194,10 +214,18 @@ struct MixerPanel: View {
 
 // MARK: - Controls
 
-/// A mixer slider in the app's style: a slot in a dark well, a coloured fill and a white cap.
+/// A mixer control drawn as a digital level, in the style of the phone's handoff lanes
+/// rather than a physical fader: a rounded container with a bright border, a filled
+/// level, a crisp indicator line at the exact value and the value as text inside.
+///
+/// - `.fromStart`: a solid tinted fill rising from the bottom (channel faders).
+/// - `.fromCentre`: a fill from the centre line, up for boost and down for cut (EQ).
+///   `killed` empties the container and shows KILL.
+/// - `.none` with a `tint`: the whole container tinted, for the crossfader and lanes.
 ///
 /// Drags are relative, so grabbing it never makes the value jump. It snaps to the
-/// detent when passing close to it, and a double-click resets it.
+/// detent when passing close to it, and a double-click resets it. The whole container
+/// is the hit area.
 struct MixerSlider: View {
     enum Fill { case fromStart, fromCentre, none }
 
@@ -207,41 +235,71 @@ struct MixerSlider: View {
     var fill: Fill = .fromStart
     var detent: Double? = nil
     var resetTo: Double
-    /// Wider cap, for channel faders.
-    var wide = false
+    /// The value as text, drawn inside the container.
+    var readout: String? = nil
+    /// An EQ band at its kill: empty container, KILL readout.
+    var killed = false
+    /// Background tint of the whole container (the crossfader and lanes blend A/B).
+    var tint: Color? = nil
     let set: (Double) -> Void
 
     @State private var dragStart: Double?
     @State private var hover = false
 
-    private let cap: CGFloat = 12
+    /// Width of a vertical slider (and its column), scaled with the text so readouts fit.
+    static var columnWidth: CGFloat { 44 * UIScale.current }
+    static let verticalHeight: CGFloat = 112
+    /// Lane background, as on the phone.
+    static let well = Color(red: 0.063, green: 0.075, blue: 0.094)
+    /// The A/B tint for a position from 0 (all A, blue) to 1 (all B, orange).
+    static func blend(_ x: Double) -> Color {
+        let c = NSColor(TJ.a).usingColorSpace(.sRGB)!.blended(withFraction: CGFloat(min(1, max(0, x))), of: NSColor(TJ.b).usingColorSpace(.sRGB)!)!
+        return Color(nsColor: c).opacity(0.24)
+    }
+
+    /// Inset of the value travel from each end, so the indicator stays inside the border.
+    private let inset: CGFloat = 7
     private var vertical: Bool { axis == .vertical }
 
     var body: some View {
         GeometryReader { g in
             let length = vertical ? g.size.height : g.size.width
-            let across = vertical ? g.size.width : g.size.height
-            let travel = max(1, length - cap - 8)
-            // Distance along the slot from its start (top or left) for a value.
-            let at = { (v: Double) -> CGFloat in 4 + cap / 2 + (vertical ? 1 - v : v) * travel }
+            let travel = max(1, length - 2 * inset)
+            // Distance along the container from its start (top or left) for a value.
+            let at = { (v: Double) -> CGFloat in inset + (vertical ? 1 - v : v) * travel }
             let p = at(value)
-            let base: CGFloat? = fill == .fromStart ? at(0) : fill == .fromCentre ? at(0.5) : nil
 
             ZStack {
-                bar(from: 4, to: length - 4, thickness: 4, length: length, across: across)
-                    .foregroundColor(Color.white.opacity(0.12))
-                if let base {
-                    bar(from: min(base, p), to: max(base, p), thickness: 4, length: length, across: across)
-                        .foregroundColor(color)
+                RoundedRectangle(cornerRadius: 10).fill(Self.well)
+                if let tint { RoundedRectangle(cornerRadius: 10).fill(tint) }
+                if !killed, let base = fill == .fromStart ? (vertical ? length : 0) : fill == .fromCentre ? at(0.5) : nil {
+                    span(min(base, p), max(base, p), in: g.size).fill(color.opacity(0.32))
                 }
                 if let d = detent {
-                    bar(from: at(d) - 0.75, to: at(d) + 0.75, thickness: across * 0.6, length: length, across: across)
-                        .foregroundColor(TJ.mute.opacity(0.8))
+                    span(at(d) - 0.5, at(d) + 0.5, in: g.size, inset: 5).fill(Color.white.opacity(0.22))
                 }
-                capView(across: across)
-                    .position(vertical ? CGPoint(x: across / 2, y: p) : CGPoint(x: p, y: across / 2))
+                if !killed {
+                    span(p - 1.25, p + 1.25, in: g.size, inset: 4).fill(Color.white)
+                        .shadow(color: color.opacity(0.9), radius: 2)
+                }
+                if let readout {
+                    Text(killed ? "KILL" : readout)
+                        .font(.tj(10, weight: killed ? .heavy : .semibold)).monospacedDigit()
+                        .tracking(killed ? 0.8 : 0)
+                        .foregroundColor(killed ? color : Color.white.opacity(0.92))
+                        .lineLimit(1).minimumScaleFactor(0.6)
+                        .padding(.horizontal, 3)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity,
+                               alignment: vertical ? (killed ? .center : readoutAlignment(p: p, length: length)) : .trailing)
+                        .padding(vertical ? .vertical : .horizontal, vertical ? 6 : 10)
+                        .allowsHitTesting(false)
+                }
             }
-            .contentShape(Rectangle())
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(killed ? color.opacity(0.55) : color, style: StrokeStyle(lineWidth: 2.5, dash: killed ? [4, 3] : [])))
+            .brightness(hover ? 0.04 : 0)
+            .contentShape(RoundedRectangle(cornerRadius: 10))
             .gesture(DragGesture(minimumDistance: 1)
                 .onChanged { d in
                     let start = dragStart ?? value
@@ -254,48 +312,23 @@ struct MixerSlider: View {
                 .onEnded { _ in dragStart = nil })
             .onTapGesture(count: 2) { set(resetTo) }
         }
-        .frame(width: vertical ? 34 : nil, height: vertical ? 96 : 24)
+        .frame(width: vertical ? Self.columnWidth : nil, height: vertical ? Self.verticalHeight : 26 * max(1, UIScale.current))
         .frame(maxWidth: vertical ? nil : .infinity)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(hover ? 0.07 : 0.035)))
         .onHover { hover = $0 }
     }
 
-    /// A centred bar along the slot between two positions.
-    private func bar(from a: CGFloat, to b: CGFloat, thickness: CGFloat, length: CGFloat, across: CGFloat) -> some View {
-        let size = max(0, b - a)
-        return RoundedRectangle(cornerRadius: min(2, thickness / 2))
-            .frame(width: vertical ? thickness : size, height: vertical ? size : thickness)
-            .position(vertical ? CGPoint(x: across / 2, y: a + size / 2) : CGPoint(x: a + size / 2, y: across / 2))
+    /// Keeps the vertical readout out of the indicator's way: at the top when the level is
+    /// low, at the bottom when it's high.
+    private func readoutAlignment(p: CGFloat, length: CGFloat) -> Alignment {
+        p > length * 0.4 ? .top : .bottom
     }
 
-    /// White cap with a coloured line through it, like a fader knob.
-    private func capView(across: CGFloat) -> some View {
-        let w = vertical ? (wide ? 28 : 24) : cap
-        let h = vertical ? cap : across - 6
-        return RoundedRectangle(cornerRadius: 3).fill(Color.white)
-            .overlay(Rectangle().fill(color).frame(width: vertical ? w : 2, height: vertical ? 2 : h))
-            .frame(width: w, height: h)
-            .shadow(color: .black.opacity(0.5), radius: 1.5, y: 1)
-    }
-}
-
-/// A read-only lane position: a thin track from A to B with a marker.
-struct LaneMeter: View {
-    let value: Double
-    let color: Color
-
-    var body: some View {
-        GeometryReader { g in
-            let w = g.size.width, h = g.size.height
-            ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.08))
-                Rectangle().fill(Color.white.opacity(0.18)).frame(width: 1.5, height: h - 6).position(x: w / 2, y: h / 2)
-                RoundedRectangle(cornerRadius: 2).fill(color)
-                    .frame(width: 6, height: h - 4)
-                    .position(x: 3 + CGFloat(value) * (w - 6), y: h / 2)
-            }
-        }
-        .frame(height: 16)
-        .frame(minWidth: 60, maxWidth: .infinity)
+    /// A band across the container between two positions along its axis.
+    private func span(_ a: CGFloat, _ b: CGFloat, in size: CGSize, inset across: CGFloat = 0) -> Path {
+        let lo = max(0, a), hi = min(vertical ? size.height : size.width, b)
+        let r = vertical
+            ? CGRect(x: across, y: lo, width: size.width - 2 * across, height: max(0, hi - lo))
+            : CGRect(x: lo, y: across, width: max(0, hi - lo), height: size.height - 2 * across)
+        return Path(r)   // the container clips it to its rounded corners
     }
 }

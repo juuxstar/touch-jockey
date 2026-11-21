@@ -1,6 +1,7 @@
 import AppKit
 import CoreImage.CIFilterBuiltins
 import SwiftUI
+import TJCore
 
 // MARK: - Keys
 
@@ -11,6 +12,8 @@ enum SettingsKey {
     static let syncOnByDefault = "syncOnByDefault"
     /// Stop the display and the Mac from sleeping while a deck plays.
     static let keepAwake = "keepAwakeWhilePlaying"
+    /// The learning ladder, as `SkillLadder.dictionary` (`{"blend": "handoff", …}`).
+    static let skillLadder = "skillLadder"
 
     static func bool(_ key: String, default value: Bool) -> Bool {
         UserDefaults.standard.object(forKey: key) as? Bool ?? value
@@ -20,12 +23,13 @@ enum SettingsKey {
 // MARK: - Sections
 
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case connect, display, library, playback, app
+    case connect, skills, display, library, playback, app
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .connect: return "Connect a phone"
+        case .skills: return "Your skills"
         case .display: return "Display"
         case .library: return "Library"
         case .playback: return "Playback"
@@ -36,6 +40,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .connect: return "iphone.radiowaves.left.and.right"
+        case .skills: return "graduationcap"
         case .display: return "textformat.size"
         case .library: return "music.note.list"
         case .playback: return "play.circle"
@@ -46,6 +51,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var color: Color {
         switch self {
         case .connect: return TJ.mint
+        case .skills: return TJ.gold
         case .display: return TJ.sky
         case .library: return TJ.lav
         case .playback: return TJ.a
@@ -137,6 +143,7 @@ struct SettingsView: View {
     @ViewBuilder private var content: some View {
         switch section {
         case .connect: connect
+        case .skills: skills
         case .display: display
         case .library: library
         case .playback: playback
@@ -150,6 +157,11 @@ struct SettingsView: View {
             **Surfaces**: phones and tablets you use as touch controllers. They open a web page from this Mac, so there's nothing to install.
 
             Any number can connect at once. **Touch ownership** stops two fingers on different devices fighting over the same lane.
+            """
+        case .skills: return """
+            **Your skills**: Touch Jockey starts you on simpler controls, and swaps each one for the real thing once you've got the hang of it.
+
+            Each **technique** has its own ladder. **Click a level** to move to it. You can step up or down at any time, even in the middle of a mix: the sound carries over.
             """
         case .display: return """
             **Text size** scales every label and button in Touch Jockey.
@@ -202,7 +214,7 @@ struct SettingsView: View {
                     step(1, "Join the same Wi-Fi network as this Mac.")
                     step(2, "Scan the code with the camera, or type the address into the browser.")
                     step(3, "On iPhone: in Safari tap Share, then Add to Home Screen. Open it from the icon for full screen.")
-                    step(4, "Turn the phone sideways for the handoff lanes.")
+                    step(4, "Hold the phone upright or sideways: the controls fit either way.")
                 }
                 Label(m.surfaces == 1 ? "1 connected now" : "\(m.surfaces) connected now",
                       systemImage: "iphone.radiowaves.left.and.right")
@@ -210,6 +222,45 @@ struct SettingsView: View {
                     .foregroundColor(m.surfaces > 0 ? TJ.mint : TJ.mute)
                     .tip("**Connected**: how many phones and tablets have the touch surface open right now.")
             }
+        }
+    }
+
+    private var skills: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            ForEach(Technique.allCases, id: \.self) { t in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(t.title).font(.tj(13, weight: .semibold))
+                    ForEach(t.levels, id: \.self) { level in levelRow(level) }
+                }
+            }
+        }
+    }
+
+    /// One rung of a ladder: click to move to it. The current level is highlighted.
+    private func levelRow(_ level: SkillLevel) -> some View {
+        let on = m.ladder[level.technique] == level
+        let color = SettingsSection.skills.color
+        return HStack(spacing: 8) {
+            Button { m.setLevel(level) } label: {
+                HStack(spacing: 10) {
+                    Text("\(level.rung + 1)").font(.tj(11, weight: .heavy)).foregroundColor(on ? .black : color)
+                        .frame(width: 20 * s, height: 20 * s)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(on ? color : .clear))
+                        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(color, lineWidth: 1.5))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(level.title).font(.tj(12.5, weight: .semibold)).foregroundColor(on ? color : .white)
+                        Text(level.line).font(.tj(11.5)).foregroundColor(TJ.mute).lineLimit(1).minimumScaleFactor(0.85)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 6).fill(on ? color.opacity(0.12) : Color.white.opacity(0.03)))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(on ? color : Color.white.opacity(0.1), lineWidth: on ? 2 : 1))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .modifier(OptionalTip(text: on ? nil : level.switchTip))
+            InfoTip(level.help)
         }
     }
 
@@ -346,4 +397,91 @@ func qrImage(_ s: String) -> NSImage? {
     let img = NSImage(size: rep.size)
     img.addRepresentation(rep)
     return img
+}
+
+// MARK: - Skill ladder text
+
+/// A `.tip` only when there's something a beginner wouldn't see coming.
+private struct OptionalTip: ViewModifier {
+    let text: String?
+    func body(content: Content) -> some View {
+        if let text { content.tip(text) } else { content }
+    }
+}
+
+extension Technique {
+    var title: String {
+        switch self {
+        case .blend: return "Blending"
+        case .timing: return "Bass-swap timing"
+        case .tempo: return "Tempo"
+        }
+    }
+}
+
+extension SkillLevel {
+    var title: String {
+        switch self {
+        case .handoff: return "Handoff lanes"
+        case .mixer: return "Mixer"
+        case .snap: return "Snap to the bar"
+        case .free: return "Free"
+        case .sync: return "SYNC"
+        }
+    }
+
+    /// One line under the title.
+    var line: String {
+        switch self {
+        case .handoff: return "Three lanes move the lows, mids and highs from one track to the other."
+        case .mixer: return "EQ, volume faders and a crossfader, like a club mixer."
+        case .snap: return "A Flick waits for the next bar, so a bass swap always lands on the 1."
+        case .free: return "A Flick lands the moment you flick: your timing decides."
+        case .sync: return "Touch Jockey matches the incoming track's tempo and beat for you."
+        }
+    }
+
+    /// The ⓘ help: what the level is, and when to move on.
+    var help: String {
+        switch self {
+        case .handoff: return """
+            **Handoff lanes**: on the phone (or in the Mac's Handoff panel), one lane each for **LOWS**, **MIDS** and **HIGHS**. Slide a lane from one deck to the other to hand that part of the music over.
+
+            **Move up when you can** blend a whole track with the lanes without thinking about them: the new hats come in early, the bass swaps on a phrase, and the old track has gone by the end.
+            """
+        case .mixer: return """
+            **Mixer**: the real thing, on the Mac and on the phone. Each deck has **HIGH**, **MID** and **LOW** EQ and a **volume** fader, with a **crossfader** between them.
+
+            Do the same moves as with the lanes: bring the new track in with its LOW killed, then swap the bass on a phrase. To finish, **stop or pause** the old track.
+
+            Step back to the lanes any time; the sound carries over.
+            """
+        case .snap: return """
+            **Snap to the bar**: Flick a lane and it swaps exactly on the next **bar** (every 4 beats), so a bass swap can't land off the beat.
+
+            **Move up when you can** feel the 1 coming: count 1-2-3-4 with the music, and your flicks would land on the 1 even without the snap.
+            """
+        case .free: return """
+            **Free**: a Flick swaps the band **the moment you flick**, with a tiny fade so it doesn't click. Early or late, you'll hear it.
+
+            Flicks are part of the **handoff lanes**. On the mixer you swap the bass with the LOW EQ by hand.
+
+            If swaps keep landing off the beat, step back to **snap** for a while.
+            """
+        case .sync: return """
+            **SYNC**: the incoming track follows the master's **tempo** and **beat**, so the two never drift apart and you can focus on the blend.
+
+            Beat-matching by ear will be the next level.
+            """
+        }
+    }
+
+    /// Tooltip on a level the user isn't on, for a change they might not expect.
+    var switchTip: String? {
+        switch self {
+        case .handoff: return "**Back to the handoff lanes**: the Mixer panel and the phone switch to the lanes right away. The sound carries over; the EQ and faders reset."
+        case .mixer: return "**Move up to the mixer**: the Mixer panel and the phone switch to EQ and faders right away. The sound carries over."
+        default: return nil
+        }
+    }
 }
