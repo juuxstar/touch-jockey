@@ -11,7 +11,7 @@ the screen, and leave as much room as possible for DJing.
 ## Help for beginners
 
 - Put explanations in **ⓘ help icons** (`InfoTip("…")` in `Tooltip.swift`), placed
-  next to the thing they explain. Never put explainer text permanently in the layout.
+  next to the thing they explain. They open on click. Never put explainer text permanently in the layout.
 - Users can switch help icons off in Settings → Display, or View → Show Help Icons
   (`infoTipsKey`). Nothing should depend on them being on.
 - Help text is markdown: **bold** for terms, short paragraphs separated by a blank
@@ -30,9 +30,10 @@ the screen, and leave as much room as possible for DJing.
   moving, for 1 second**, and hides on any movement or press. That's what `.tip("…")`
   does (`StillTipModifier`). It matters most on sliders, which the pointer sits on
   while they're in use.
-- The only exception is the ⓘ help icons, whose whole purpose is to show help on
-  hover. They use `.tip(text, delay:)` with a short delay. Don't use that form
-  anywhere else.
+- **ⓘ help icons open only when clicked** (`InfoTip`, `ClickTipModifier`), never on
+  hover. They stay open while being read; clicking the ⓘ again, opening another one, or Esc closes them. Help text must say
+  "click the ⓘ", not "hover".
+- `.tip(text, delay:)` (a fixed-delay hover tip) is no longer used; avoid it.
 - Tooltips draw on a layer over the whole window, so panels can't clip them. A
   separate window or sheet needs its own layer: `.tooltipScope(name)`.
 
@@ -55,6 +56,9 @@ the screen, and leave as much room as possible for DJing.
 - Decks have **fixed positions**: A on the left (or on top), B on the right (or below),
   on every screen. Don't reorder by role (outgoing or incoming); show the role with a
   label instead.
+- Main window, top to bottom: deck cards, a compact timeline (fixed height), the
+  mixer, the **library as a full-width sortable table** (it takes the remaining
+  height), then the status line.
 - Keep the main window for DJing. Rarely needed options go in the Settings window
   (⌘,, `Settings.swift`).
 - The window opens full screen on the laptop's built-in display (`WindowPlacement.swift`).

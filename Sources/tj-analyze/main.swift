@@ -12,9 +12,9 @@ for path in paths {
     let url = URL(fileURLWithPath: path)
     let start = Date()
     do {
-        let g = try BeatAnalyzer.analyze(url: url)
-        print(String(format: "%7.2f BPM  conf %.2f  first beat %6.3fs  %5.1fs  (%.1fs)  %@",
-                     g.bpm, g.confidence, g.firstBeat, g.duration, Date().timeIntervalSince(start), url.lastPathComponent))
+        let a = try BeatAnalyzer.analyzeTrack(url: url), g = a.grid
+        print(String(format: "%7.2f BPM  conf %.2f  key %@ (%@, %.2f)  first beat %6.3fs  %5.1fs  (%.1fs)  %@",
+                     g.bpm, g.confidence, a.key?.camelot ?? "-", a.key?.name ?? "-", a.key?.confidence ?? 0, g.firstBeat, g.duration, Date().timeIntervalSince(start), url.lastPathComponent))
     } catch {
         print("failed: \(url.lastPathComponent): \(error)")
     }

@@ -8,7 +8,7 @@ import Foundation
 /// Stored in `~/Library/Application Support/TouchJockey/analysis/`, about 150 KB per track
 /// (waveform levels quantised to one byte at 200 values a second).
 public enum AnalysisCache {
-    private static let version = 2   // 2: averaged comb score, 70-180 BPM, confidence
+    private static let version = 3   // 2: averaged comb score, 70-180 BPM, confidence. 3: musical key
     private static let dir: URL = {
         let d = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("TouchJockey/analysis", isDirectory: true)
@@ -20,6 +20,7 @@ public enum AnalysisCache {
         var version: Int
         var bpm: Double, firstBeat: Double, duration: Double
         var confidence: Double?
+        var key: MusicalKey.Result?
         var rate: Double
         var full: Data, low: Data
     }
@@ -37,14 +38,14 @@ public enum AnalysisCache {
               let e = try? JSONDecoder().decode(Entry.self, from: data), e.version == version else { return nil }
         let unq: (Data) -> [Float] = { d in d.map { Float($0) / 255 } }
         return TrackAnalysis(grid: BeatGrid(bpm: e.bpm, firstBeat: e.firstBeat, duration: e.duration, confidence: e.confidence ?? 1),
-                             waveform: Waveform(levelsFull: unq(e.full), low: unq(e.low), rate: e.rate))
+                             waveform: Waveform(levelsFull: unq(e.full), low: unq(e.low), rate: e.rate), key: e.key)
     }
 
     public static func store(_ a: TrackAnalysis, for url: URL) {
         guard let f = file(for: url) else { return }
         let q: ([Float]) -> Data = { Data($0.map { UInt8(max(0, min(255, ($0 * 255).rounded()))) }) }
         let e = Entry(version: version, bpm: a.grid.bpm, firstBeat: a.grid.firstBeat, duration: a.grid.duration,
-                      confidence: a.grid.confidence,
+                      confidence: a.grid.confidence, key: a.key,
                       rate: a.waveform.rate, full: q(a.waveform.full), low: q(a.waveform.low))
         if let data = try? JSONEncoder().encode(e) { try? data.write(to: f, options: .atomic) }
     }

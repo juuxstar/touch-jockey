@@ -65,7 +65,8 @@ public enum BeatAnalyzer {
         while beatFrame + period * 0.5 < musicStart { beatFrame += period }
 
         let grid = BeatGrid(bpm: bpm, firstBeat: beatFrame / envRate, duration: Double(n) / sampleRate, confidence: confidence)
-        return TrackAnalysis(grid: grid, waveform: Waveform(full: fullEnergy, low: lowEnergy, rate: envRate))
+        return TrackAnalysis(grid: grid, waveform: Waveform(full: fullEnergy, low: lowEnergy, rate: envRate),
+                             key: MusicalKey.detect(mono, sampleRate: sampleRate))
     }
 
     /// Positive changes in log energy, weighted towards the kick drum, at about 200 frames a second.
@@ -159,6 +160,8 @@ public enum BeatAnalyzer {
 public struct TrackAnalysis {
     public var grid: BeatGrid
     public var waveform: Waveform
+    /// Detected musical key (nil if detection failed).
+    public var key: MusicalKey.Result?
 }
 
 /// Loudness over time for drawing: whole-signal and bass levels, each 0...1, at `rate` values a second.

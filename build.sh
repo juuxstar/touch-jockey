@@ -34,6 +34,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 swiftc $OPT -target "$TARGET" -parse-as-library -I "$OUT/obj" -L "$OUT/obj" -lTJCore \
   -o "$APP/Contents/MacOS/TouchJockey" Sources/TouchJockey/*.swift
 cp -R Sources/TouchJockey/Surface "$APP/Contents/Resources/Surface"
+cp -R Sources/TouchJockey/Guide "$APP/Contents/Resources/Guide"
 
 # App icon from the official 1024 px PNG.
 ICONSET="$OUT/obj/AppIcon.iconset"

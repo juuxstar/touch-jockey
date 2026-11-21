@@ -13,6 +13,8 @@ final class AppModel: ObservableObject {
         var loading = false
         /// The tempo detection wasn't confident; sync may be off.
         var bpmUnsure = false
+        /// Camelot key of the loaded track.
+        var key: String?
         var paused = false
         var atCue = true
     }
@@ -22,6 +24,10 @@ final class AppModel: ObservableObject {
     /// File loaded on each deck, for marking it in the library.
     @Published var loadedPaths: [String?] = [nil, nil]
     @Published var showSettings = false
+    /// The built-in DJ guide. Opens by itself the first time the app runs.
+    @Published var showGuide = !UserDefaults.standard.bool(forKey: GuideKey.seen) {
+        didSet { if showGuide { UserDefaults.standard.set(true, forKey: GuideKey.seen) } }
+    }
     @Published var settingsSection: SettingsSection = .connect
     @Published var syncOn = true
     private(set) var server: ControlServer?
@@ -105,7 +111,7 @@ final class AppModel: ObservableObject {
             switch result {
             case .success(let g):
                 self.loadedPaths[deck] = url.path
-                self.library.noteLoaded(path: url.path, bpm: g.bpm, confidence: g.confidence)
+                self.library.noteLoaded(path: url.path, bpm: g.bpm, confidence: g.confidence, key: self.mix.decks[deck].key)
                 self.decks[deck].bpmUnsure = g.confidence < 0.25
                 self.status = String(format: "Deck %@: %.2f BPM, first downbeat at %.2fs.", self.mix.decks[deck].name, g.bpm, g.firstBeat)
             case .failure(let e): self.status = "Couldn't load that file: \(e.localizedDescription)"
@@ -179,6 +185,7 @@ final class AppModel: ObservableObject {
             let d = mix.decks[i]
             decks[i].title = d.title
             decks[i].artist = d.artist
+            decks[i].key = d.key
             decks[i].bpm = d.playingBPM
             decks[i].playing = d.isPlaying
             decks[i].paused = d.pausedBeat != nil

@@ -23,6 +23,8 @@ public final class Deck {
     public private(set) var artist: String = ""
     public private(set) var grid: BeatGrid?
     public private(set) var waveform: Waveform?
+    /// Detected key, Camelot code (for example "8A").
+    public private(set) var key: String?
     /// File frame where the currently scheduled segment starts.
     var segmentStartFrame: AVAudioFramePosition = 0
     public private(set) var isPlaying = false
@@ -86,6 +88,7 @@ public final class Deck {
         file = f
         grid = analysis.grid
         waveform = analysis.waveform
+        key = analysis.key?.camelot
         (title, artist) = Deck.tags(url)
         connect(in: engine, format: f.processingFormat)
     }

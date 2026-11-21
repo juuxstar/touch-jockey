@@ -77,18 +77,21 @@ final class LibraryModel: ObservableObject {
     // MARK: Recents and analysis results
 
     /// Called when a track is loaded into a deck.
-    func noteLoaded(path: String, bpm: Double, confidence: Double) {
+    func noteLoaded(path: String, bpm: Double, confidence: Double, key: String?) {
         recents.removeAll { $0 == path }
         recents.insert(path, at: 0)
         if recents.count > Self.maxRecents { recents.removeLast(recents.count - Self.maxRecents) }
         UserDefaults.standard.set(recents, forKey: Self.recentsKey)
-        apply(bpm: bpm, confidence: confidence, path: path, save: true)
+        apply(bpm: bpm, confidence: confidence, key: key, path: path, save: true)
     }
 
-    private func apply(bpm: Double, confidence: Double, path: String, save: Bool) {
-        if let i = tracks.firstIndex(where: { $0.path == path }) { tracks[i].bpm = bpm; tracks[i].bpmConfidence = confidence }
+    private func apply(bpm: Double, confidence: Double, key: String?, path: String, save: Bool) {
+        if let i = tracks.firstIndex(where: { $0.path == path }) {
+            tracks[i].bpm = bpm; tracks[i].bpmConfidence = confidence
+            if let key { tracks[i].key = key }
+        }
         storeQueue.async {
-            self.store.setBPM(bpm, confidence: confidence, for: path)
+            self.store.setBPM(bpm, confidence: confidence, key: key, for: path)
             if save { self.store.save() }
         }
     }
@@ -104,10 +107,10 @@ final class LibraryModel: ObservableObject {
                 if gen != self.generation { return }
                 AnalysisPriority.waitForForeground()
                 // Full analysis, cached on disk, so loading the track later is instant.
-                let grid = try? AnalysisCache.analysis(for: URL(fileURLWithPath: path)).grid
+                let analysis = try? AnalysisCache.analysis(for: URL(fileURLWithPath: path))
                 DispatchQueue.main.async {
                     guard gen == self.generation else { return }
-                    if let grid { self.apply(bpm: grid.bpm, confidence: grid.confidence, path: path, save: n % 10 == 9 || n == todo.count - 1) }
+                    if let a = analysis { self.apply(bpm: a.grid.bpm, confidence: a.grid.confidence, key: a.key?.camelot, path: path, save: n % 10 == 9 || n == todo.count - 1) }
                     self.analysing = todo.count - n - 1
                 }
             }

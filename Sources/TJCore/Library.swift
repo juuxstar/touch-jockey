@@ -13,6 +13,8 @@ public struct LibraryTrack: Codable, Identifiable, Hashable {
     public var bpm: Double?
     /// 0...1; below about 0.25 the BPM is a guess.
     public var bpmConfidence: Double?
+    /// Camelot key, for example "8A".
+    public var key: String?
     public var modified: Date
 
     public var url: URL { URL(fileURLWithPath: path) }
@@ -60,7 +62,7 @@ public final class LibraryStore {
                 found.append(known)
             } else {
                 var t = Self.readTags(url, modified: modified)
-                if let known = byPath[url.path], known.modified == modified { t.bpm = known.bpm; t.bpmConfidence = known.bpmConfidence }
+                if let known = byPath[url.path], known.modified == modified { t.bpm = known.bpm; t.bpmConfidence = known.bpmConfidence; t.key = known.key }
                 found.append(t)
             }
             if found.count % 25 == 0 { progress?(found.count) }
@@ -83,10 +85,11 @@ public final class LibraryStore {
     }
 
     /// Records an analysed BPM for a track.
-    public func setBPM(_ bpm: Double, confidence: Double, for path: String) {
+    public func setBPM(_ bpm: Double, confidence: Double, key: String? = nil, for path: String) {
         guard var t = byPath[path] else { return }
         t.bpm = bpm
         t.bpmConfidence = confidence
+        if let key { t.key = key }
         byPath[path] = t
         if let i = tracks.firstIndex(where: { $0.path == path }) { tracks[i] = t }
     }
@@ -126,6 +129,7 @@ public final class LibraryStore {
             duration: CMTimeGetSeconds(asset.duration).isFinite ? CMTimeGetSeconds(asset.duration) : 0,
             bpm: nil,
             bpmConfidence: nil,
+            key: nil,
             modified: modified)
     }
 }

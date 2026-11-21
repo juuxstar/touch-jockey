@@ -29,12 +29,19 @@ struct TouchJockeyApp: App {
                         .environmentObject(model.library)
                         .preferredColorScheme(.dark)
                 }
+                .sheet(isPresented: $model.showGuide) {
+                    GuideView().id(uiScale).preferredColorScheme(.dark)
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") { model.openSettings() }
                     .keyboardShortcut(",")
+            }
+            CommandGroup(replacing: .help) {
+                Button("Touch Jockey Guide") { model.showGuide = true }
+                    .keyboardShortcut("?")
             }
             CommandGroup(after: .appInfo) {
                 Button("Restart Touch Jockey") { AppRestart.relaunch() }
@@ -163,6 +170,7 @@ struct TJButtonStyle: ButtonStyle {
                 .opacity(enabled ? 1 : 0.35)
                 .contentShape(Rectangle())
                 .onHover { hover = $0 && enabled }
+                .cursor(.pointingHand, enabled: enabled)
                 .animation(.easeOut(duration: 0.08), value: pressed)
         }
     }
@@ -197,9 +205,11 @@ struct ContentView: View {
     @State private var showSplash = !ContentView.splashDone
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            LibraryView().frame(width: 360)
+        // Decks, timeline and mixer on top; the library table fills the rest; status line last.
+        VStack(alignment: .leading, spacing: 10) {
             mainColumn
+            LibraryView().frame(minHeight: 170, maxHeight: .infinity)
+            statusLine
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
@@ -226,7 +236,7 @@ struct ContentView: View {
                 deckCard(1)
             }
             Panel(color: TJ.sky) {
-                DeckTimeline(mix: m.mix).frame(minHeight: 180, maxHeight: .infinity)
+                DeckTimeline(mix: m.mix).frame(height: 116)   // two compact lanes; the rest of the window goes to the mixer and library
                     .overlay(alignment: .topTrailing) {
                         InfoTip("""
                             **Timeline**: both tracks lined up beat for beat.
@@ -247,15 +257,21 @@ struct ContentView: View {
                 MixerPanel()
             }
             .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    var statusLine: some View {
             HStack(spacing: 8) {
                 Text(m.status).font(.tj(11)).foregroundColor(TJ.mute).lineLimit(1)
                 Spacer()
                 connectedIndicator
+                Button { m.showGuide = true } label: { Label("Guide", systemImage: "book") }
+                    .tjButton(TJ.gold)
+                    .tip("**DJ Guide**: learn DJing step by step, one technique at a time.\n\nShortcut: **⌘?**")
                 Button { m.openSettings() } label: { Image(systemName: "gearshape") }
                     .tjButton(TJ.mute)
                     .tip("**Settings**: connect a phone, text size, library folder, playback options and more.\n\nShortcut: **⌘,**")
             }
-        }
     }
 
     func deckCard(_ i: Int) -> some View {
@@ -321,7 +337,7 @@ struct ContentView: View {
 
     func meta(_ d: AppModel.DeckInfo) -> String {
         guard let bpm = d.bpm else { return "Double-click a track in the library" }
-        return String(format: "%.2f BPM%@ · %@", bpm, d.bpmUnsure ? " (unsure)" : "", d.playing ? "playing" : d.paused ? "paused" : "ready")
+        return String(format: "%.2f BPM%@%@ · %@", bpm, d.bpmUnsure ? " (unsure)" : "", d.key.map { " · key \($0)" } ?? "", d.playing ? "playing" : d.paused ? "paused" : "ready")
     }
 
     /// How many phones and tablets are connected. Click for the code to scan and the steps.
@@ -383,6 +399,7 @@ struct CueButton: View {
             .opacity(enabled ? 1 : 0.35)
             .contentShape(Rectangle())
             .onHover { hover = $0 && enabled }
+            .cursor(.pointingHand, enabled: enabled)
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { _ in
                     guard enabled, !held else { return }

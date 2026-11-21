@@ -19,6 +19,7 @@ final class TooltipCenter: ObservableObject {
 
     func show(_ text: String, at anchor: CGRect, in space: String, owner id: UUID) {
         guard !text.isEmpty else { return }
+        _ = escMonitor
         self.text = text
         self.anchor = anchor
         self.space = space
@@ -29,6 +30,14 @@ final class TooltipCenter: ObservableObject {
     func hideAll() {
         text = nil
         owner = nil
+    }
+
+    func isShowing(owner id: UUID) -> Bool { owner == id && text != nil }
+
+    /// Esc closes whatever help or tooltip is open.
+    private lazy var escMonitor: Any? = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+        if e.keyCode == 53, let self, self.text != nil { self.text = nil; self.owner = nil; return nil }
+        return e
     }
 
     func hide(owner id: UUID) {
@@ -156,7 +165,7 @@ extension View {
 /// Setting that hides every info icon once a user no longer needs them (View → Show Help Icons).
 let infoTipsKey = "showInfoTips"
 
-/// A small ⓘ icon that explains the thing next to it. Hover (or click) to read.
+/// A small ⓘ icon that explains the thing next to it. **Click** to read; it doesn't open on hover.
 ///
 /// Used instead of explainer text in the layout, so beginners get plenty of help
 /// without it taking up screen space. Hidden entirely when Show Help Icons is off.
@@ -172,8 +181,34 @@ struct InfoTip: View {
                 .font(.tj(13, weight: .semibold))
                 .foregroundColor(TJ.gold)
                 .contentShape(Circle())
-                .tip(text, delay: 0.1)
+                .pointingHandCursor()
+                .modifier(ClickTipModifier(text: text))
         }
+    }
+}
+
+/// Help that opens on click and stays open while you read it: clicking the icon again,
+/// opening another help icon, or pressing Esc closes it. Used by the ⓘ help icons.
+private struct ClickTipModifier: ViewModifier {
+    let text: String
+    @State private var id = UUID()
+    @State private var frame: CGRect = .zero
+    @Environment(\.tooltipSpaceName) private var space
+
+    func body(content: Content) -> some View {
+        content
+            .background(GeometryReader { g in
+                Color.clear
+                    .onAppear { frame = g.frame(in: .named(space)) }
+                    .onChange(of: g.frame(in: .named(space))) { frame = $0 }
+            })
+            .onTapGesture {
+                if TooltipCenter.shared.isShowing(owner: id) { TooltipCenter.shared.hide(owner: id) }
+                else { TooltipCenter.shared.show(text, at: frame, in: space, owner: id) }
+            }
+            .onDisappear { TooltipCenter.shared.hide(owner: id) }
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint(text)
     }
 }
 

@@ -20,6 +20,7 @@ struct DeckTimeline: View {
             }
             // Clicking the timeline cues the incoming track at the next phrase (when it isn't playing yet).
             .contentShape(Rectangle())
+            .pointingHandCursor()   // clicking cues the incoming track
             .onTapGesture {
                 let inc = mix.decks[mix.incoming]
                 if inc.grid != nil, !inc.isPlaying, mix.decks[mix.outgoing].isPlaying { mix.cueIncoming(every: 32) }
