@@ -193,6 +193,7 @@ struct ContentView: View {
             if showSplash { SplashView().transition(.opacity) }
         }
         .onAppear {
+            WindowPlacement.fullScreenOnLaptop()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
                 ContentView.splashDone = true
                 withAnimation(.easeOut(duration: 0.45)) { showSplash = false }
