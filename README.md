@@ -3,7 +3,9 @@
 A beginner DJ tool. The Mac does all the audio; phones and tablets are touch
 controllers. Instead of faders and EQ knobs, a transition is three **handoff
 lanes** (lows, mids, highs) that move energy from the outgoing track to the
-incoming one. Flick a lane and it swaps on the next bar.
+incoming one. Flick a lane and it swaps on the next bar. The Mac window adds a
+conventional two-channel mixer (EQ, volume faders, crossfader) that works on top
+of the lanes.
 
 Design doc: <https://claude.ai/artifact/DciH8vHF7wfWi2PrbkKuY8>
 
@@ -16,6 +18,7 @@ Working:
 - The incoming track starts on the outgoing track's next bar or phrase.
 - Three-band handoff with 24 dB/octave crossovers at 200 Hz and 2.5 kHz and equal-power lanes.
 - Flick to swap a band on the next bar. When every lane reaches the incoming side, the handoff finishes on the next bar and the decks swap roles.
+- A conventional two-channel mixer on top of the lanes: per-deck HIGH/MID/LOW EQ (kill at the bottom, 0 dB at the centre, +6 dB at the top), a volume fader per deck, and a crossfader. It multiplies with the lanes (see [Gain model](#gain-model)).
 - Web surface for any phone or tablet:
   - relative drags and multi-touch
   - touch ownership, so two devices never fight over a lane
@@ -24,7 +27,7 @@ Working:
 - Mac window:
   - load tracks
   - start, cue and stop
-  - lanes as sliders, for testing without a phone
+  - a Mixer panel: two channel strips (EQ and volume fader), a crossfader, and a compact readout of the phone's lanes with Flick, Back to and Stop all
   - a QR code for connecting a surface
 
 Not yet built (see the design doc's milestones):
@@ -54,6 +57,7 @@ Developer shortcuts:
 open build/TouchJockey.app --args --volume 0.3 --a "path/to/a.mp3" --b "path/to/b.mp3"
 build/tj-analyze ~/Music/serenity/*/*/*.mp3    # check the beat analysis
 scripts/drive.py                               # scripted handoff over the WebSocket, like a phone
+scripts/mixer_test.sh                          # muted engine test of EQ, faders, crossfader and lanes
 ```
 
 ## Building
@@ -73,15 +77,39 @@ Sources/
   TJCore/                  audio and networking, no UI
     BeatAnalyzer.swift     onset envelope + comb search → BPM and first downbeat
     Deck.swift             player → time-pitch (key lock) → 3 band filters → band gains
-    MixEngine.swift        two decks, handoff lanes, flicks, role swap, phase lock
+    MixEngine.swift        two decks, handoff lanes, flicks, role swap, phase lock; EQ, faders, crossfader
     ControlServer.swift    HTTP for the surface (8080) + WebSocket for control (8081)
   TouchJockey/             the Mac app
     App.swift              window (SwiftUI)
+    MixerPanel.swift       the Mixer panel: channel strips, crossfader, lane readout, MixerSlider
     AppModel.swift         connects engine, window and surfaces; 30 Hz state broadcast
     Surface/index.html     the web surface served to phones and tablets
   tj-analyze/              command-line beat analysis
 scripts/drive.py           test driver that speaks the surface protocol
+scripts/mixer_test.*       muted engine test for the mixer layer (links build/obj/libTJCore.a)
 ```
+
+### Gain model
+
+Each deck's signal path is player → time-pitch → three band filters → band
+gains → deck output → main mixer. The handoff lanes and the mixer meet on two
+of those nodes and multiply:
+
+```
+band gain   = lane gain × EQ gain          (each band's AVAudioMixerNode)
+deck volume = fader gain × crossfader gain (each deck's output AVAudioMixerNode)
+```
+
+- **Lane gain**: equal power along the lane, A = cos(x·π/2), B = sin(x·π/2).
+- **EQ gain**: control position 0…1. The upper half is 0 to +6 dB, the lower half
+  0 to −30 dB (both linear in dB), and the bottom 2% is a full kill.
+- **Fader gain**: position squared, so half-way is about −12 dB.
+- **Crossfader gain**: both decks full at the centre. Towards one side, the other
+  deck fades out over that half with a quarter-sine: A = cos((x−0.5)·π) for
+  x > 0.5, B = sin(x·π) for x < 0.5. Smooth, with no dip in the middle.
+
+Only the lanes finish a handoff and swap the roles. The mixer never does, and
+Stop all and Back to leave it alone.
 
 ### Surface protocol (JSON over the WebSocket)
 
@@ -95,7 +123,12 @@ From a surface:
 | `stable` | Everything back to the outgoing track. |
 | `play` | Start the outgoing deck. |
 | `cue` + `every` | Start the incoming deck on the next multiple of `every` beats. |
+| `eq` + `deck` + `band` + `v` | EQ position from 0 (kill) through 0.5 (unity) to 1 (+6 dB). `deck` is 0/1 or `"A"`/`"B"`. |
+| `volume` + `deck` + `v` | Channel fader from 0 (silent) to 1 (full). |
+| `xfade` + `v` | Crossfader from 0 (A only) through 0.5 (both full) to 1 (B only). |
 
 From the Mac, about 30 times a second: `state`, with roles, lanes, lane owners,
-both decks (title, artist, BPM, playing, beat), the outgoing beat and BPM, and
-`startsIn` (beats until the incoming deck starts).
+both decks (title, artist, BPM, playing, beat), the outgoing beat and BPM,
+`startsIn` (beats until the incoming deck starts), and the mixer: `eq` (per deck,
+`{low, mid, high}`), `volume` (per deck) and `xfade`, on the same scales as the
+messages above.

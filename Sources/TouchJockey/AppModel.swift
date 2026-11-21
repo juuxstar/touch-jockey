@@ -28,6 +28,10 @@ final class AppModel: ObservableObject {
     @Published var decks = [DeckInfo(name: "A"), DeckInfo(name: "B")]
     @Published var lanes: [Band: Double] = [.low: 0, .mid: 0, .high: 0]
     @Published var outgoing = 0
+    /// Mixer controls, mirrored from the engine (see MixEngine for ranges).
+    @Published var eq: [[Band: Double]] = [[.low: 0.5, .mid: 0.5, .high: 0.5], [.low: 0.5, .mid: 0.5, .high: 0.5]]
+    @Published var volumes: [Double] = [1, 1]
+    @Published var crossfader = 0.5
     @Published var beat: Double?
     @Published var surfaces = 0
     @Published var status = "Load a track into each deck."
@@ -113,11 +117,16 @@ final class AppModel: ObservableObject {
     func stopAll() { mix.stopAll() }
     func setLane(_ b: Band, _ v: Double) { mix.setLane(b, v) }
     func flick(_ b: Band) { mix.flick(b, to: (mix.lanes[b] ?? 0) < 0.5 ? 1 : 0) }
+    func setEQ(_ deck: Int, _ b: Band, _ v: Double) { mix.setEQ(deck: deck, band: b, v) }
+    func setVolume(_ deck: Int, _ v: Double) { mix.setVolume(deck: deck, v) }
+    func setCrossfader(_ v: Double) { mix.setCrossfader(v) }
 
     // MARK: Surfaces
 
     private func handle(_ id: ControlServer.ClientID, _ msg: [String: Any]) {
         let band = (msg["band"] as? String).flatMap(Band.init(rawValue:))
+        // Mixer messages name the deck as 0/1 or "A"/"B".
+        let deck = (msg["deck"] as? Int) ?? (msg["deck"] as? String).flatMap { ["A": 0, "B": 1][$0.uppercased()] }
         switch msg["t"] as? String {
         case "grab":
             if let band, owners[band] == nil { owners[band] = id }
@@ -135,6 +144,12 @@ final class AppModel: ObservableObject {
             mix.play(deck: mix.outgoing)
         case "cue":
             mix.cueIncoming(every: (msg["every"] as? Double) ?? 32)
+        case "eq":
+            if let deck, let band, let v = msg["v"] as? Double { mix.setEQ(deck: deck, band: band, v) }
+        case "volume":
+            if let deck, let v = msg["v"] as? Double { mix.setVolume(deck: deck, v) }
+        case "xfade":
+            if let v = msg["v"] as? Double { mix.setCrossfader(v) }
         case "disconnect":
             for (b, owner) in owners where owner == id { owners[b] = nil }
         default:
@@ -145,6 +160,9 @@ final class AppModel: ObservableObject {
     private func refresh() {
         outgoing = mix.outgoing
         lanes = mix.lanes
+        if eq != mix.eq { eq = mix.eq }
+        if volumes != mix.volumes { volumes = mix.volumes }
+        if crossfader != mix.crossfader { crossfader = mix.crossfader }
         for i in 0..<2 {
             let d = mix.decks[i]
             decks[i].title = d.title
@@ -173,6 +191,10 @@ final class AppModel: ObservableObject {
                 ["name": d.name, "title": d.title, "artist": d.artist, "bpm": d.playingBPM ?? 0, "playing": d.isPlaying, "loaded": d.grid != nil, "beat": d.currentBeat() ?? -1]
             },
             "surfaces": surfaces,
+            // Mixer: EQ per deck (0 kill, 0.5 unity, 1 +6 dB), channel faders, crossfader.
+            "eq": mix.eq.map { Dictionary(uniqueKeysWithValues: $0.map { ($0.key.rawValue, $0.value) }) },
+            "volume": mix.volumes,
+            "xfade": mix.crossfader,
         ]
         if let b { state["beat"] = b; state["bpm"] = out.playingBPM ?? 0 }
         if let start = mix.incomingStartBeat, let b, b < start { state["startsIn"] = start - b }

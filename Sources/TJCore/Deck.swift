@@ -8,7 +8,8 @@ public enum Band: String, CaseIterable, Codable {
 /// One track player: file → player → time-pitch (sync with key lock) → three band filters → deck output.
 ///
 /// The bands are split in parallel with 24 dB/octave filters at 200 Hz and 2.5 kHz,
-/// and each band has its own volume, which the handoff lanes drive.
+/// and each band has its own volume: the handoff lane's gain times the mixer's EQ gain.
+/// The deck output's volume is the channel fader times the crossfader.
 public final class Deck {
     public let name: String
     let player = AVAudioPlayerNode()
@@ -102,6 +103,17 @@ public final class Deck {
     func setGain(_ gain: Float, band: Band) {
         bandGains[band]!.outputVolume = gain
     }
+
+    /// The deck's overall volume (channel fader × crossfader), applied after the bands are summed.
+    func setVolume(_ gain: Float) {
+        output.outputVolume = gain
+    }
+
+    /// Current gain of one band (handoff lane × EQ), as set on its mixer node. For tests and meters.
+    public func bandGain(_ band: Band) -> Float { bandGains[band]!.outputVolume }
+
+    /// Current overall deck volume, as set on the deck's output mixer. For tests and meters.
+    public var outputGain: Float { output.outputVolume }
 
     /// Plays from a beat index (0 = first downbeat), starting at a host time (nil = now).
     func play(fromBeat beat: Double, atHostTime host: UInt64?) {

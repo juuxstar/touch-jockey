@@ -226,9 +226,9 @@ struct ContentView: View {
                             .padding(6)
                     }
             }
-            // Handoff and Surfaces side by side, always the same height.
+            // Mixer and Surfaces side by side, always the same height.
             HStack(alignment: .top, spacing: 10) {
-                lanesPanel
+                MixerPanel()
                 connectPanel.frame(width: 190)
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -302,54 +302,9 @@ struct ContentView: View {
         }
     }
 
-    /// "all A", "all B", or how much of the band is on B.
-    func laneReadout(_ v: Double) -> String {
-        v <= 0.005 ? "all A" : v >= 0.995 ? "all B" : String(format: "%.0f%% B", v * 100)
-    }
-
     func meta(_ d: AppModel.DeckInfo) -> String {
         guard let bpm = d.bpm else { return "Double-click a track in the library" }
         return String(format: "%.2f BPM%@ · %@", bpm, d.bpmUnsure ? " (unsure)" : "", d.playing ? "playing" : d.paused ? "paused" : "ready")
-    }
-
-    var lanesPanel: some View {
-        Panel(color: TJ.lav, fillHeight: true) {
-            HStack {
-                Cap(text: "Handoff \(m.decks[m.outgoing].name) → \(m.decks[1 - m.outgoing].name)")
-                Text("A ◀︎ ▶︎ B").font(.tj(11, weight: .bold)).foregroundColor(TJ.mute)
-                InfoTip("""
-                    **Handoff**: a transition moves the music from the outgoing track to the incoming one, **band by band**.
-
-                    **Lanes** run from deck **A** (left) to deck **B** (right), like a crossfader. Decks never move: after an A → B handoff, the next one runs back from B to A.
-
-                    **How to blend**: move **HIGHS** and **MIDS** across slowly over a phrase, then **flick LOWS** to swap the bass on the beat. Two basslines at once sound muddy.
-
-                    **Finishing**: when every lane is over, the handoff ends on the next bar and the decks swap roles.
-
-                    The phone does the same with your fingers.
-                    """)
-                Spacer()
-                Button("Back to \(m.decks[m.outgoing].name)") { m.mix.backToStable() }.tjButton(TJ.deck(m.outgoing))
-                    .tip("**Back to outgoing**: move every lane back, undoing the handoff so far.\n\nSame as a **two-finger tap** on the phone.")
-                Button("Stop all") { m.stopAll() }.tjButton(TJ.rose)
-                    .tip("**Stop all**: stop both decks, send them back to bar 1, and reset the lanes.")
-            }
-            ForEach([Band.high, .mid, .low], id: \.self) { band in
-                HStack(spacing: 10) {
-                    Text(band.rawValue.uppercased()).font(.tj(11, weight: .heavy)).tracking(1.2)
-                        .foregroundColor(.black).frame(width: 58, height: 22).background(TJ.band(band))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                    Text("A").font(.tj(11, weight: .heavy)).foregroundColor(TJ.a)
-                    Slider(value: Binding(get: { m.lanes[band] ?? 0 }, set: { m.setLane(band, $0) }), in: 0...1)
-                        .tint(TJ.band(band))
-                    Text("B").font(.tj(11, weight: .heavy)).foregroundColor(TJ.b)
-                    Text(laneReadout(m.lanes[band] ?? 0)).font(.tj(12)).monospacedDigit()
-                        .foregroundColor(TJ.mute).frame(width: 56, alignment: .trailing)
-                    Button("Flick") { m.flick(band) }.tjButton(TJ.band(band))
-                        .tip("**Flick**: swap this band to the other track exactly on the **next bar**, like flicking the lane on the phone.\n\nUse it on **LOW** for a clean bass swap.")
-                }
-            }
-        }
     }
 
     /// Compact: a small QR code and the connection count. Click for a large code and instructions.
