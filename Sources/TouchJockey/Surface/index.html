@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<!-- ds-allow-hardcode: standalone surface page; colours live in the :root tokens below, sizes are layout values -->
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Touch Jockey">
+<link rel="apple-touch-icon" href="tj-icon.png">
+<link rel="icon" href="tj.svg">
+<title>Touch Jockey</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+:root{--bg:#0b0c0f;--panel:#15171c;--line:#2a2e38;--text:#eceef2;--mute:#8b909c;
+--A:#5cb8ff;--B:#ff9a3d;--gold:#ffc44d;--sky:#8fd0ff;--lav:#c49bff;--rose:#ff5f8f}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+html,body{height:100%;position:fixed;inset:0;background:var(--bg);color:var(--text);overflow:hidden;overscroll-behavior:none;touch-action:none;
+  font-family:Inter,-apple-system,"Helvetica Neue",sans-serif;font-feature-settings:"tnum" 1}
+body{display:flex;flex-direction:column;gap:10px;
+  padding:max(12px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+.top{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;min-height:44px}
+.trk{display:flex;align-items:center;gap:10px;min-width:0}.trk.r{flex-direction:row-reverse;text-align:right}
+.tag{flex:none;width:30px;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:800;color:#0b0c0f}
+.t1{font-weight:650;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t2{font-size:11.5px;color:var(--mute);white-space:nowrap}
+.mid{display:flex;flex-direction:column;align-items:center;gap:5px}
+.headline{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px}
+.headline img{width:22px;height:22px;border-radius:5px}
+.bars{display:flex;gap:5px}.bars i{width:22px;height:5px;border-radius:3px;background:var(--line)}.bars i.on{background:var(--gold)}
+.action{border:2px solid var(--gold);color:var(--gold);background:transparent;border-radius:6px;padding:5px 12px;font:600 13px Inter,sans-serif}
+.lanes{flex:1;display:flex;flex-direction:column;gap:10px;min-height:0}
+.lane{--x0:100px;--x1:84px;flex:1;position:relative;border-radius:10px;border:2.5px solid var(--c);background:#101318;overflow:hidden}
+.fillO,.fillI{position:absolute;top:0;bottom:0}
+.track{position:absolute;left:var(--x0);right:var(--x1);top:0;bottom:0;pointer-events:none}
+.det{position:absolute;left:calc(var(--x0) + (100% - var(--x0) - var(--x1)) / 2);top:10px;bottom:10px;width:2px;margin-left:-1px;background:#ffffff26}
+.name{position:absolute;left:10px;top:50%;transform:translateY(-50%);background:var(--c);color:#0b0c0f;padding:4px 10px;border-radius:6px;
+  font-weight:800;font-size:12px;letter-spacing:.14em;z-index:2;pointer-events:none}
+.pct{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--mute);pointer-events:none}
+.knob{position:absolute;top:8px;bottom:8px;width:14px;margin-left:-7px;border-radius:3px;background:#fff;
+  box-shadow:0 0 0 3px var(--c),0 0 0 7px #0b0c0f;pointer-events:none}
+.lane.held .knob{box-shadow:0 0 0 3px #fff,0 0 0 7px var(--c)}
+.armed{position:absolute;inset:0;border-radius:8px;box-shadow:inset 0 0 0 3px var(--gold);display:none;pointer-events:none}
+.lane.armed .armed{display:block}
+.foot{display:flex;justify-content:space-between;align-items:center;min-height:20px;gap:12px}
+.beats{display:flex;gap:6px;align-items:center}
+.beats span{font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--gold);margin-right:4px}
+.beats i{width:9px;height:9px;border-radius:50%;background:var(--line)}
+.beats i.on{background:var(--gold);box-shadow:0 0 0 4px #ffc44d33}
+.hint{color:var(--mute);font-size:11.5px;text-align:right}
+.conn{position:fixed;inset:0;background:#0b0c0fe6;display:flex;align-items:center;justify-content:center;font-weight:600;color:var(--mute);z-index:10}
+.conn.hide{display:none}
+@media (orientation:portrait){.lanes::before{content:"Turn your phone sideways for the handoff lanes";color:var(--mute);font-size:13px;text-align:center}}
+</style></head>
+<body>
+<div class="top">
+  <div class="trk"><span class="tag" id="oTag">A</span><div style="min-width:0"><div class="t1" id="oTitle">No track</div><div class="t2" id="oMeta">outgoing</div></div></div>
+  <div class="mid">
+    <div class="headline"><img src="tj.svg" alt=""><span id="headline">Touch Jockey</span></div>
+    <div class="bars" id="bars"><i></i><i></i><i></i><i></i></div>
+    <button class="action" id="action" hidden></button>
+  </div>
+  <div class="trk r"><span class="tag" id="iTag">B</span><div style="min-width:0"><div class="t1" id="iTitle">No track</div><div class="t2" id="iMeta">incoming</div></div></div>
+</div>
+<div class="lanes" id="lanes"></div>
+<div class="foot">
+  <div class="beats" id="beats"><span id="barNo">BAR</span><i></i><i></i><i></i><i></i></div>
+  <div class="hint">Drag a lane to hand a band over · flick to swap on the next bar · two-finger tap: back to the outgoing track</div>
+</div>
+<div class="conn" id="conn">Connecting to Touch Jockey…</div>
+
+<script>
+const BANDS = [["high","HIGHS","--sky"],["mid","MIDS","--lav"],["low","LOWS","--rose"]];
+const $ = id => document.getElementById(id);
+const lanes = {}; // band -> {el, v, dragging, armed}
+let state = null, stateAt = 0, ws = null;
+
+for (const [band, label, color] of BANDS) {
+  const el = document.createElement("div");
+  el.className = "lane"; el.style.setProperty("--c", `var(${color})`);
+  el.innerHTML = `<div class="fillO"></div><div class="fillI"></div><div class="det"></div>
+    <span class="name">${label}</span><span class="pct"></span><div class="track"><div class="knob"></div></div><div class="armed"></div>`;
+  $("lanes").appendChild(el);
+  lanes[band] = { el, v: 0, dragging: null, armed: false };
+}
+
+function deckColor(name) { return name === "B" ? "var(--B)" : "var(--A)"; }
+
+function renderLane(band) {
+  const L = lanes[band], v = L.v, el = L.el;
+  const o = state ? deckColor(state.out) : "var(--A)", i = state ? deckColor(state.in) : "var(--B)";
+  // Left of the handle = what has already gone to the incoming deck; right = what the outgoing deck still has.
+  const fo = el.querySelector(".fillO"), fi = el.querySelector(".fillI");
+  const pos = `calc(var(--x0) + (100% - var(--x0) - var(--x1)) * ${v})`;
+  fi.style.left = "var(--x0)"; fi.style.right = "auto"; fi.style.width = `calc((100% - var(--x0) - var(--x1)) * ${v})`;
+  fo.style.left = pos; fo.style.right = "0"; fo.style.width = "auto";
+  fi.style.background = `linear-gradient(90deg, color-mix(in srgb, ${i} 22%, transparent), color-mix(in srgb, ${i} 40%, transparent))`;
+  fo.style.background = `linear-gradient(90deg, color-mix(in srgb, ${o} 34%, transparent), color-mix(in srgb, ${o} 16%, transparent))`;
+  el.querySelector(".knob").style.left = `${v * 100}%`;
+  const inName = state ? state.in : "B", outName = state ? state.out : "A";
+  el.querySelector(".pct").textContent = v <= 0.005 ? `all ${outName}` : v >= 0.995 ? `all ${inName}` : `${Math.round(v * 100)}% ${inName}`;
+  el.classList.toggle("held", !!L.dragging);
+  el.classList.toggle("armed", L.armed);
+}
+
+// ---- connection ----
+function send(msg) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg)); }
+function connect() {
+  ws = new WebSocket(`ws://${location.hostname}:${Number(location.port || 80) + 1}`);
+  ws.onopen = () => $("conn").classList.add("hide");
+  ws.onclose = () => { $("conn").classList.remove("hide"); setTimeout(connect, 800); };
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.t !== "state") return;
+    state = m; stateAt = performance.now();
+    for (const [band] of BANDS) {
+      const L = lanes[band];
+      if (!L.dragging) {
+        const nv = m.lanes[band] ?? 0;
+        if (L.armed && Math.abs(nv - L.v) > 0.5) L.armed = false;  // the flick landed
+        L.v = nv;
+      }
+      renderLane(band);
+    }
+    renderTop();
+  };
+}
+
+function renderTop() {
+  const d = Object.fromEntries((state.decks || []).map(x => [x.name, x]));
+  const o = d[state.out] || {}, i = d[state.in] || {};
+  $("oTag").textContent = state.out; $("oTag").style.background = deckColor(state.out);
+  $("iTag").textContent = state.in;  $("iTag").style.background = deckColor(state.in);
+  $("oTitle").textContent = o.title || "No track"; $("iTitle").textContent = i.title || "No track";
+  $("oMeta").textContent = o.loaded ? `${o.artist ? o.artist + " · " : ""}${o.bpm.toFixed(1)} BPM · ${o.playing ? "playing" : "ready"}` : "load on the laptop";
+  $("iMeta").textContent = i.loaded ? `${i.artist ? i.artist + " · " : ""}${i.playing ? (state.startsIn ? "cued, synced" : "synced") : i.bpm.toFixed(1) + " BPM · ready"}` : "load on the laptop";
+  const act = $("action");
+  if (!o.playing && o.loaded) { act.hidden = false; act.textContent = `Start ${state.out}`; act.dataset.cmd = "play"; }
+  else if (o.playing && i.loaded && !i.playing) { act.hidden = false; act.textContent = `Bring in ${state.in} next phrase`; act.dataset.cmd = "cue"; }
+  else act.hidden = true;
+  let head = "Touch Jockey";
+  if (state.startsIn != null) head = `${state.in} drops in ${Math.max(1, Math.ceil(state.startsIn / 4))} bar${Math.ceil(state.startsIn / 4) > 1 ? "s" : ""}`;
+  else if (o.playing && i.playing) head = `Handoff ${state.out} → ${state.in}`;
+  else if (o.playing) head = `${state.out} playing`;
+  $("headline").textContent = head;
+}
+$("action").addEventListener("pointerdown", e => { e.stopPropagation(); send({ t: e.currentTarget.dataset.cmd, every: 32 }); });
+
+// Beat dots and bar counter, interpolated between state messages.
+function frame() {
+  if (state && state.beat != null) {
+    const beat = state.beat + (performance.now() - stateAt) / 1000 * (state.bpm / 60);
+    const inBar = ((Math.floor(beat) % 4) + 4) % 4;
+    document.querySelectorAll("#beats i").forEach((el, k) => el.classList.toggle("on", k === inBar));
+    $("barNo").textContent = `BAR ${Math.floor(beat / 4) + 1}`;
+    const left = state.startsIn != null ? state.startsIn - (beat - state.beat) : null;
+    const bars = left != null ? Math.min(4, Math.ceil(left / 4)) : 0;
+    document.querySelectorAll("#bars i").forEach((el, k) => el.classList.toggle("on", k < 4 - bars + 0 && left != null));
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ---- touch ----
+// Relative drags: a lane moves by how far the finger travels, never jumping to where it lands.
+const pointers = new Map(); // pointerId -> {band, x0, v0, w, hist:[[t,x]], moved, t0}
+let recentDowns = [];
+
+$("lanes").addEventListener("pointerdown", e => {
+  const laneEl = e.target.closest(".lane"); if (!laneEl) return;
+  e.preventDefault();
+  const band = Object.keys(lanes).find(b => lanes[b].el === laneEl);
+  const L = lanes[band];
+  laneEl.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { band, x0: e.clientX, v0: L.v, w: laneEl.clientWidth - 184, hist: [[performance.now(), e.clientX]], moved: 0, t0: performance.now() });
+  recentDowns = recentDowns.filter(t => performance.now() - t < 250); recentDowns.push(performance.now());
+  if (!L.dragging) { L.dragging = e.pointerId; send({ t: "grab", band }); }
+  renderLane(band);
+  lockScreenAwake();
+});
+
+let pendingSend = {};
+$("lanes").addEventListener("pointermove", e => {
+  const p = pointers.get(e.pointerId); if (!p) return;
+  e.preventDefault();
+  const L = lanes[p.band]; if (L.dragging !== e.pointerId) return;
+  const dx = e.clientX - p.x0;
+  p.moved = Math.max(p.moved, Math.abs(dx));
+  p.hist.push([performance.now(), e.clientX]); if (p.hist.length > 8) p.hist.shift();
+  L.v = Math.min(1, Math.max(0, p.v0 + dx / p.w));
+  L.armed = false;
+  renderLane(p.band);
+  if (!pendingSend[p.band]) {
+    pendingSend[p.band] = true;
+    requestAnimationFrame(() => { pendingSend[p.band] = false; send({ t: "lane", band: p.band, v: lanes[p.band].v }); });
+  }
+});
+
+function endPointer(e) {
+  const p = pointers.get(e.pointerId); if (!p) return;
+  pointers.delete(e.pointerId);
+  const L = lanes[p.band];
+  // Two quick fingers that don't move = back to the outgoing track.
+  if (recentDowns.length >= 2 && p.moved < 12 && performance.now() - p.t0 < 350 && pointers.size === 0) {
+    recentDowns = []; send({ t: "stable" });
+  }
+  if (L.dragging === e.pointerId) {
+    // Flick: fast at release → the band jumps to the end it was thrown towards, on the next bar.
+    const h = p.hist, a = h[0], b = h[h.length - 1];
+    const dt = (b[0] - a[0]) / 1000, vel = dt > 0 ? (b[1] - a[1]) / p.w / dt : 0;  // lane widths per second
+    if (Math.abs(vel) > 2.2 && p.moved > 20) {
+      const to = vel > 0 ? 1 : 0;
+      L.v = p.v0; L.armed = true;              // stays put until the swap lands
+      send({ t: "lane", band: p.band, v: p.v0 });
+      send({ t: "flick", band: p.band, to });
+    } else {
+      send({ t: "lane", band: p.band, v: L.v });
+    }
+    L.dragging = null;
+    send({ t: "release", band: p.band });
+    renderLane(p.band);
+  }
+}
+$("lanes").addEventListener("pointerup", endPointer);
+$("lanes").addEventListener("pointercancel", endPointer);
+
+// Keep the screen (and its Wi-Fi radio) awake while playing, where the browser allows it.
+let wakeLock = null;
+async function lockScreenAwake() {
+  try { if (!wakeLock && navigator.wakeLock) wakeLock = await navigator.wakeLock.request("screen"); } catch (_) {}
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { wakeLock = null; lockScreenAwake(); } });
+
+for (const [band] of BANDS) renderLane(band);
+connect();
+</script>
+</body></html>

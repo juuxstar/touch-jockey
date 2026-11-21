@@ -1,0 +1,164 @@
+import AppKit
+import Foundation
+import TJCore
+
+/// Connects the mix engine to the window and to the touch surfaces.
+final class AppModel: ObservableObject {
+    struct DeckInfo: Equatable {
+        var name: String
+        var title = ""
+        var artist = ""
+        var bpm: Double?
+        var playing = false
+        var loading = false
+    }
+
+    let mix = MixEngine()
+    private(set) var server: ControlServer?
+
+    @Published var decks = [DeckInfo(name: "A"), DeckInfo(name: "B")]
+    @Published var lanes: [Band: Double] = [.low: 0, .mid: 0, .high: 0]
+    @Published var outgoing = 0
+    @Published var beat: Double?
+    @Published var surfaces = 0
+    @Published var status = "Load a track into each deck."
+    @Published var connectURL: String?
+
+    /// Which surface currently has a finger on each lane (touch ownership).
+    private var owners: [Band: ControlServer.ClientID] = [:]
+    private var ticker: Timer?
+
+    init() {
+        do { try mix.start() } catch { status = "Audio engine failed to start: \(error.localizedDescription)" }
+        mix.onChange = { [weak self] in self?.refresh() }
+
+        let root = Self.surfaceFolder()
+        let server = ControlServer(root: root)
+        server.onMessage = { [weak self] id, msg in self?.handle(id, msg) }
+        server.onClientsChanged = { [weak self] n in self?.surfaces = n }
+        do {
+            try server.start()
+            self.server = server
+            if let ip = ControlServer.lanAddress() { connectURL = "http://\(ip):\(server.httpPort)" }
+        } catch {
+            status = "Control server failed to start: \(error.localizedDescription)"
+        }
+
+        // ~30 state updates a second to every surface, and the beat readout in the window.
+        ticker = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in self?.tick() }
+        refresh()
+        applyLaunchArguments()
+    }
+
+    /// Developer shortcuts: `--a <file> --b <file> --volume 0.3` preload decks and set the master volume.
+    private func applyLaunchArguments() {
+        let args = ProcessInfo.processInfo.arguments
+        func value(_ flag: String) -> String? {
+            guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
+            return args[i + 1]
+        }
+        if let v = value("--volume").flatMap(Float.init) { mix.engine.mainMixerNode.outputVolume = v }
+        if let a = value("--a") { load(URL(fileURLWithPath: a), into: 0) }
+        if let b = value("--b") { load(URL(fileURLWithPath: b), into: 1) }
+    }
+
+    static func surfaceFolder() -> URL {
+        if let r = Bundle.main.resourceURL?.appendingPathComponent("Surface"),
+           FileManager.default.fileExists(atPath: r.path) { return r }
+        // Running the bare binary from a checkout.
+        return URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Surface")
+    }
+
+    // MARK: Window actions
+
+    func chooseTrack(for deck: Int) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.audio]
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Music")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        load(url, into: deck)
+    }
+
+    func load(_ url: URL, into deck: Int) {
+        decks[deck].loading = true
+        status = "Analysing \(url.deletingPathExtension().lastPathComponent)…"
+        mix.load(url: url, into: deck) { [weak self] result in
+            guard let self else { return }
+            self.decks[deck].loading = false
+            switch result {
+            case .success(let g): self.status = String(format: "Deck %@: %.2f BPM, first downbeat at %.2fs.", self.mix.decks[deck].name, g.bpm, g.firstBeat)
+            case .failure(let e): self.status = "Couldn't load that file: \(e.localizedDescription)"
+            }
+            self.refresh()
+        }
+    }
+
+    func playOutgoing() { mix.playOutgoing() }
+    func cueIncoming(every beats: Double) { mix.cueIncoming(every: beats) }
+    func stopAll() { mix.stopAll() }
+    func setLane(_ b: Band, _ v: Double) { mix.setLane(b, v) }
+    func flick(_ b: Band) { mix.flick(b, to: (mix.lanes[b] ?? 0) < 0.5 ? 1 : 0) }
+
+    // MARK: Surfaces
+
+    private func handle(_ id: ControlServer.ClientID, _ msg: [String: Any]) {
+        let band = (msg["band"] as? String).flatMap(Band.init(rawValue:))
+        switch msg["t"] as? String {
+        case "grab":
+            if let band, owners[band] == nil { owners[band] = id }
+        case "release":
+            if let band, owners[band] == id { owners[band] = nil }
+        case "lane":
+            if let band, let v = msg["v"] as? Double, owners[band] == nil || owners[band] == id {
+                mix.setLane(band, v)
+            }
+        case "flick":
+            if let band, let to = msg["to"] as? Double { mix.flick(band, to: to) }
+        case "stable":
+            mix.backToStable()
+        case "play":
+            mix.playOutgoing()
+        case "cue":
+            mix.cueIncoming(every: (msg["every"] as? Double) ?? 32)
+        case "disconnect":
+            for (b, owner) in owners where owner == id { owners[b] = nil }
+        default:
+            break
+        }
+    }
+
+    private func refresh() {
+        outgoing = mix.outgoing
+        lanes = mix.lanes
+        for i in 0..<2 {
+            let d = mix.decks[i]
+            decks[i].title = d.title
+            decks[i].artist = d.artist
+            decks[i].bpm = d.playingBPM
+            decks[i].playing = d.isPlaying
+        }
+    }
+
+    private func tick() {
+        mix.syncTick(interval: 1.0 / 30)
+        let b = mix.outgoingBeat()
+        if (b == nil) != (beat == nil) || b.map({ Int($0 * 4) }) != beat.map({ Int($0 * 4) }) { beat = b }
+        // A finished deck stops on its own; keep the play state honest.
+        for i in 0..<2 where decks[i].playing != mix.decks[i].isPlaying { refresh() }
+
+        let out = mix.decks[mix.outgoing], inc = mix.decks[mix.incoming]
+        var state: [String: Any] = [
+            "t": "state",
+            "out": out.name, "in": inc.name,
+            "lanes": Dictionary(uniqueKeysWithValues: mix.lanes.map { ($0.key.rawValue, $0.value) }),
+            "owners": Dictionary(uniqueKeysWithValues: owners.map { ($0.key.rawValue, $0.value) }),
+            "decks": mix.decks.map { d -> [String: Any] in
+                ["name": d.name, "title": d.title, "artist": d.artist, "bpm": d.playingBPM ?? 0, "playing": d.isPlaying, "loaded": d.grid != nil, "beat": d.currentBeat() ?? -1]
+            },
+            "surfaces": surfaces,
+        ]
+        if let b { state["beat"] = b; state["bpm"] = out.playingBPM ?? 0 }
+        if let start = mix.incomingStartBeat, let b, b < start { state["startsIn"] = start - b }
+        server?.broadcast(state)
+    }
+}
