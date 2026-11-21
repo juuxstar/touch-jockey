@@ -62,6 +62,18 @@ final class LibraryModel: ObservableObject {
         }
     }
 
+    /// Throws away every cached analysis and analyses the whole library again in the background,
+    /// for example after the beat detection has improved.
+    func reanalyseAll() {
+        generation += 1   // stops any analysis or scan in progress at its next step
+        // Queued behind the track being analysed now, so nothing writes to the cache after it's cleared.
+        analysisQueue.async {
+            AnalysisCache.clearAll()
+            // A fresh scan, which then analyses every track that has no cached analysis: all of them.
+            DispatchQueue.main.async { self.rescan() }
+        }
+    }
+
     // MARK: Recents and analysis results
 
     /// Called when a track is loaded into a deck.
