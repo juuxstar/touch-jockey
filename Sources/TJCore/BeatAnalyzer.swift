@@ -9,6 +9,12 @@ public struct BeatGrid: Codable, Equatable {
     public var firstBeat: Double
     /// Track length in seconds.
     public var duration: Double
+    /// How clearly the beat stood out, 0 (guess) to 1 (clear). Below about 0.25 the tempo may be wrong.
+    public var confidence: Double = 1
+
+    public init(bpm: Double, firstBeat: Double, duration: Double, confidence: Double = 1) {
+        self.bpm = bpm; self.firstBeat = firstBeat; self.duration = duration; self.confidence = confidence
+    }
 
     public var secondsPerBeat: Double { 60 / bpm }
 
@@ -20,18 +26,18 @@ public struct BeatGrid: Codable, Equatable {
 
 /// Finds tempo and beat phase with an onset envelope and a comb search.
 ///
-/// Built for steady four-on-the-floor dance music: it searches a fixed BPM range
-/// (default 100 to 150) so it never picks half or double tempo, and assumes the
-/// first beat after the music starts is a downbeat, which holds for most DJ edits.
+/// Built for steady four-on-the-floor dance music: it searches 70 to 180 BPM, resolves
+/// half/double-time with a preference for dance tempos, and assumes the first beat
+/// after the music starts is a downbeat, which holds for most DJ edits.
 public enum BeatAnalyzer {
     public enum Failure: Error { case unreadable, tooShort }
 
-    public static func analyze(url: URL, minBPM: Double = 100, maxBPM: Double = 150) throws -> BeatGrid {
+    public static func analyze(url: URL, minBPM: Double = 70, maxBPM: Double = 180) throws -> BeatGrid {
         try analyzeTrack(url: url, minBPM: minBPM, maxBPM: maxBPM).grid
     }
 
     /// Beat grid plus a waveform for drawing, from one read of the file.
-    public static func analyzeTrack(url: URL, minBPM: Double = 100, maxBPM: Double = 150) throws -> TrackAnalysis {
+    public static func analyzeTrack(url: URL, minBPM: Double = 70, maxBPM: Double = 180) throws -> TrackAnalysis {
         let file = try AVAudioFile(forReading: url)
         let format = file.processingFormat
         let sampleRate = format.sampleRate
@@ -48,7 +54,7 @@ public enum BeatAnalyzer {
         }
 
         let (onset, lowEnergy, fullEnergy, envRate) = onsetEnvelope(mono, sampleRate: sampleRate)
-        let (bpm, phase) = combSearch(onset, envRate: envRate, minBPM: minBPM, maxBPM: maxBPM)
+        let (bpm, phase, confidence) = combSearch(onset, envRate: envRate, minBPM: minBPM, maxBPM: maxBPM)
 
         // First downbeat: the first beat at or after the point where the music starts.
         let period = 60 / bpm * envRate
@@ -58,7 +64,7 @@ public enum BeatAnalyzer {
         var beatFrame = phase
         while beatFrame + period * 0.5 < musicStart { beatFrame += period }
 
-        let grid = BeatGrid(bpm: bpm, firstBeat: beatFrame / envRate, duration: Double(n) / sampleRate)
+        let grid = BeatGrid(bpm: bpm, firstBeat: beatFrame / envRate, duration: Double(n) / sampleRate, confidence: confidence)
         return TrackAnalysis(grid: grid, waveform: Waveform(full: fullEnergy, low: lowEnergy, rate: envRate))
     }
 
@@ -92,37 +98,60 @@ public enum BeatAnalyzer {
     }
 
     /// Score = onset strength summed at every predicted beat; best (bpm, phase in frames) wins.
-    static func combSearch(_ onset: [Float], envRate: Double, minBPM: Double, maxBPM: Double) -> (Double, Double) {
-        func score(bpm: Double, phase: Double) -> Float {
+    /// Finds the tempo and beat phase that best fit the onsets.
+    ///
+    /// Each candidate (bpm, phase) is scored by the *average* onset strength at its
+    /// predicted beats. (A sum would favour fast tempos, which predict more beats.)
+    /// Half and double tempo hit the same kicks and score alike, so a gentle preference
+    /// for dance tempos, centred on 125 BPM, picks between them.
+    /// Returns (bpm, phase in frames, confidence 0...1).
+    static func combSearch(_ onset: [Float], envRate: Double, minBPM: Double, maxBPM: Double) -> (Double, Double, Double) {
+        let n = onset.count
+        let overall = max(1e-6, onset.reduce(0, +) / Float(n))
+        func meanAtBeats(bpm: Double, phase: Double) -> Float {
             let period = 60 / bpm * envRate
-            var t = phase, sum: Float = 0
-            let last = Double(onset.count - 2)
+            var t = phase, sum: Float = 0, count = 0
+            let last = Double(n - 2)
             while t < last {
                 let i = Int(t), frac = Float(t - Double(i))
                 sum += onset[i] * (1 - frac) + onset[i + 1] * frac
+                count += 1
                 t += period
             }
-            return sum
+            return count > 0 ? sum / Float(count) : 0
         }
-        func best(bpms: StrideThrough<Double>, phaseStep: Double, around: (Double, Double)? = nil) -> (Double, Double, Float) {
-            var top = (0.0, 0.0, -Float.infinity)
+        func prior(_ bpm: Double) -> Double {
+            let octaves = log2(bpm / 125)
+            return exp(-0.5 * (octaves / 0.45) * (octaves / 0.45))
+        }
+        func best(_ bpms: [Double], phaseStep: Double, phaseAround: Double? = nil) -> (bpm: Double, phase: Double, mean: Float, score: Double) {
+            var top = (bpm: 0.0, phase: 0.0, mean: Float(0), score: -Double.infinity)
             for b in bpms {
                 let period = 60 / b * envRate
-                var p = 0.0
-                if let (_, ph) = around { p = max(0, ph - 2) }
-                let end = around == nil ? period : min(period, (around?.1 ?? 0) + 2)
+                var p = phaseAround.map { max(0, $0 - 3) } ?? 0
+                let end = phaseAround.map { min(period, $0 + 3) } ?? period
+                let w = prior(b)
                 while p < end {
-                    let s = score(bpm: b, phase: p)
-                    if s > top.2 { top = (b, p, s) }
+                    let m = meanAtBeats(bpm: b, phase: p)
+                    let sc = Double(m / overall) * w
+                    if sc > top.score { top = (b, p, m, sc) }
                     p += phaseStep
                 }
             }
             return top
         }
-        let coarse = best(bpms: stride(from: minBPM, through: maxBPM, by: 0.1), phaseStep: 1)
-        let fine = best(bpms: stride(from: coarse.0 - 0.12, through: coarse.0 + 0.12, by: 0.005),
-                        phaseStep: 0.25, around: (coarse.0, coarse.1))
-        return (fine.0, fine.1)
+        let coarseBPMs = Array(stride(from: minBPM, through: maxBPM, by: 0.25))
+        let coarse = best(coarseBPMs, phaseStep: 2)
+        // The coarse phase is only meaningful at the coarse tempo (a quarter BPM off drifts by
+        // most of a beat over a track), so the fine pass searches every phase again.
+        let fineBPMs = Array(stride(from: coarse.bpm - 0.3, through: coarse.bpm + 0.3, by: 0.01))
+        let mid = best(fineBPMs, phaseStep: 0.5)
+        let fine = best(Array(stride(from: mid.bpm - 0.01, through: mid.bpm + 0.01, by: 0.002)),
+                        phaseStep: 0.1, phaseAround: mid.phase)
+        // Confidence: how much stronger the onsets are on the beats than on average (1x = none, 4x+ = clear).
+        let contrast = Double(fine.mean / overall)
+        let confidence = max(0, min(1, (contrast - 1) / 3))
+        return (fine.bpm, fine.phase, confidence)
     }
 }
 
@@ -149,6 +178,13 @@ public struct Waveform {
         self.rate = rate
         full = levels(fullEnergy)
         low = levels(lowEnergy)
+    }
+
+    /// Builds from levels that are already 0...1 (used by the analysis cache).
+    init(levelsFull: [Float], low: [Float], rate: Double) {
+        self.rate = rate
+        full = levelsFull
+        self.low = low
     }
 
     /// Peak levels over a span of seconds (used per drawn column).

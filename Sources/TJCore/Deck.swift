@@ -25,6 +25,10 @@ public final class Deck {
     /// File frame where the currently scheduled segment starts.
     var segmentStartFrame: AVAudioFramePosition = 0
     public private(set) var isPlaying = false
+    /// Where a paused deck resumes from (nil = from bar 1).
+    public internal(set) var pausedBeat: Double?
+    /// The cue point, as a beat index (0 = bar 1). CUE returns here.
+    public internal(set) var cueBeat: Double = 0
 
     static let lowCrossover: Float = 200
     static let highCrossover: Float = 2500
@@ -75,6 +79,8 @@ public final class Deck {
 
     func load(url: URL, analysis: TrackAnalysis, in engine: AVAudioEngine) throws {
         stop()
+        pausedBeat = nil
+        cueBeat = 0
         let f = try AVAudioFile(forReading: url)
         file = f
         grid = analysis.grid
@@ -89,7 +95,8 @@ public final class Deck {
         func value(_ key: AVMetadataKey) -> String? {
             AVMetadataItem.metadataItems(from: items, withKey: key, keySpace: .common).first?.stringValue
         }
-        return (value(.commonKeyTitle) ?? url.deletingPathExtension().lastPathComponent, value(.commonKeyArtist) ?? "")
+        let guess = LibraryStore.guessFromFileName(url)
+        return (value(.commonKeyTitle) ?? guess.title, value(.commonKeyArtist) ?? guess.artist)
     }
 
     func setGain(_ gain: Float, band: Band) {

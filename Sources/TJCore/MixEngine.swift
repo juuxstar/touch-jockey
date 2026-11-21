@@ -3,10 +3,12 @@ import Foundation
 
 /// Two decks and a handoff from the outgoing deck to the incoming one.
 ///
-/// Each band has a lane value from 0 (all outgoing) to 1 (all incoming). The two
-/// decks' band gains follow an equal-power curve, so a lane at 0.5 is the same
-/// loudness as either end. When every lane reaches 1, the handoff finishes on the
-/// next bar: the outgoing deck stops and the decks swap roles.
+/// Decks have fixed positions, like a hardware mixer: each band's lane runs from
+/// deck A (0) to deck B (1). The band gains follow an equal-power curve, so a lane
+/// at 0.5 is as loud as either end. When every lane reaches the incoming deck's
+/// side, the handoff finishes on the next bar: the outgoing deck stops and the
+/// roles swap, with the lanes left where they are, so the next blend runs the
+/// other way.
 public final class MixEngine {
     public let engine = AVAudioEngine()
     public let decks: [Deck]
@@ -19,6 +21,10 @@ public final class MixEngine {
     public var onChange: (() -> Void)?
 
     private var finishScheduled = false
+    /// SYNC: the incoming deck follows the outgoing deck's tempo and beat. On by default.
+    public private(set) var syncOn = true
+    /// Decks currently previewing from the cue point while CUE is held.
+    public private(set) var previewing: Set<Int> = []
 
     public init() {
         decks = [Deck(name: "A"), Deck(name: "B")]
@@ -38,8 +44,10 @@ public final class MixEngine {
 
     /// Analyses and loads a track into a deck. Analysis runs off the main thread.
     public func load(url: URL, into deckIndex: Int, completion: @escaping (Result<BeatGrid, Error>) -> Void) {
+        AnalysisPriority.beginForeground()
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result { try BeatAnalyzer.analyzeTrack(url: url) }
+            let result = Result { try AnalysisCache.analysis(for: url) }
+            AnalysisPriority.endForeground()
             DispatchQueue.main.async {
                 switch result {
                 case .success(let analysis):
@@ -81,11 +89,110 @@ public final class MixEngine {
         onChange?()
     }
 
+    /// Play or resume one deck from where it was paused (bar 1 if stopped).
+    ///
+    /// The outgoing deck plays at its own tempo. The incoming deck, if the outgoing one is
+    /// playing, starts synced and lands on the outgoing deck's next beat, so it is never
+    /// out of time; otherwise it plays at its own tempo too.
+    public func play(deck i: Int) {
+        let d = decks[i]
+        guard d.grid != nil, !d.isPlaying else { return }
+        let from = d.pausedBeat ?? d.cueBeat
+        if i == incoming, syncOn, decks[outgoing].isPlaying, let outBPM = decks[outgoing].playingBPM, let g = d.grid,
+           let (host, beat) = hostTime(ofNextBoundary: 1) {
+            baseRatio = outBPM / g.bpm
+            phaseIntegral = 0
+            d.timePitch.rate = Float(baseRatio)
+            d.play(fromBeat: from.rounded(), atHostTime: host)   // whole beat, so it lands on the beat
+            incomingStartBeat = beat
+        } else {
+            if i == outgoing && !decks[incoming].isPlaying { d.timePitch.rate = 1 }
+            d.play(fromBeat: from, atHostTime: nil)
+        }
+        d.pausedBeat = nil
+        onChange?()
+    }
+
+    // MARK: CUE (CDJ behaviour)
+
+    /// CUE pressed. Playing: back to the cue point and pause. Paused away from the cue point:
+    /// set the cue point here (snapped to the nearest beat). Paused on the cue point: preview
+    /// from it until CUE is released.
+    public func cueDown(deck i: Int) {
+        let d = decks[i]
+        guard d.grid != nil else { return }
+        if d.isPlaying {
+            d.stop()
+            d.pausedBeat = nil
+            if i == incoming { incomingStartBeat = nil }
+        } else {
+            let pos = d.pausedBeat ?? d.cueBeat
+            if abs(pos - d.cueBeat) > 0.05 {
+                d.cueBeat = max(0, pos.rounded())
+                d.pausedBeat = nil
+            } else {
+                previewing.insert(i)
+                d.pausedBeat = nil
+                play(deck: i)
+            }
+        }
+        onChange?()
+    }
+
+    /// CUE released: a preview stops and returns to the cue point.
+    public func cueUp(deck i: Int) {
+        guard previewing.remove(i) != nil else { return }
+        let d = decks[i]
+        d.stop()
+        d.pausedBeat = nil
+        if i == incoming { incomingStartBeat = nil }
+        onChange?()
+    }
+
+    /// PLAY pressed while CUE is held: keep playing after CUE is released (CDJ behaviour).
+    public func keepPreviewPlaying(deck i: Int) { previewing.remove(i); onChange?() }
+
+    // MARK: SYNC
+
+    public func setSync(_ on: Bool) {
+        syncOn = on
+        let inc = decks[incoming]
+        if on, let outBPM = decks[outgoing].playingBPM, let g = inc.grid {
+            baseRatio = outBPM / g.bpm
+            phaseIntegral = 0
+            inc.timePitch.rate = Float(baseRatio)
+        } else if !on {
+            inc.timePitch.rate = 1
+        }
+        onChange?()
+    }
+
+    /// Pause one deck, remembering its position.
+    public func pause(deck i: Int) {
+        let d = decks[i]
+        guard d.isPlaying else { return }
+        d.pausedBeat = d.currentBeat()
+        d.stop()
+        if i == incoming { incomingStartBeat = nil }
+        onChange?()
+    }
+
+    /// Stop one deck and return it to bar 1.
+    public func stop(deck i: Int) {
+        let d = decks[i]
+        d.stop()
+        d.pausedBeat = nil
+        if i == incoming { incomingStartBeat = nil }
+        onChange?()
+    }
+
     public func stopAll() {
-        for d in decks { d.stop() }
+        previewing.removeAll()
+        for d in decks { d.stop(); d.pausedBeat = nil }
         incomingStartBeat = nil
         finishScheduled = false
-        lanes = [.low: 0, .mid: 0, .high: 0]
+        let end = laneEnd(forDeck: outgoing)
+        lanes = [.low: end, .mid: end, .high: end]
         applyGains()
         onChange?()
     }
@@ -99,7 +206,7 @@ public final class MixEngine {
         onChange?()
     }
 
-    /// A flick: the band jumps to `target` exactly on the outgoing deck's next bar.
+    /// A flick: the band jumps to `target` (0 = A, 1 = B) exactly on the outgoing deck's next bar.
     public func flick(_ band: Band, to target: Double) {
         guard let (host, _) = hostTime(ofNextBoundary: 4) else { setLane(band, target); return }
         at(hostTime: host) { self.setLane(band, target) }
@@ -107,7 +214,7 @@ public final class MixEngine {
 
     /// Back to the last stable mix: everything on the outgoing deck.
     public func backToStable() {
-        for b in Band.allCases { lanes[b] = 0 }
+        for b in Band.allCases { lanes[b] = laneEnd(forDeck: outgoing) }
         applyGains()
         onChange?()
     }
@@ -115,24 +222,31 @@ public final class MixEngine {
     private func applyGains() {
         for b in Band.allCases {
             let x = lanes[b] ?? 0
-            decks[outgoing].setGain(Float(cos(x * .pi / 2)), band: b)
-            decks[incoming].setGain(Float(sin(x * .pi / 2)), band: b)
+            decks[0].setGain(Float(cos(x * .pi / 2)), band: b)   // A
+            decks[1].setGain(Float(sin(x * .pi / 2)), band: b)   // B
         }
     }
 
+    /// Lane value meaning "all on this deck": 0 for A, 1 for B.
+    public func laneEnd(forDeck i: Int) -> Double { i == 0 ? 0 : 1 }
+
+    private var allOnIncoming: Bool {
+        let end = laneEnd(forDeck: incoming)
+        return Band.allCases.allSatisfy { abs((lanes[$0] ?? 0) - end) <= 0.001 }
+    }
+
     private func checkFinish() {
-        guard !finishScheduled, Band.allCases.allSatisfy({ (lanes[$0] ?? 0) >= 0.999 }),
+        guard !finishScheduled, allOnIncoming,
               decks[incoming].isPlaying,
               let (host, _) = hostTime(ofNextBoundary: 4) else { return }
         finishScheduled = true
         at(hostTime: host) {
             self.finishScheduled = false
-            guard Band.allCases.allSatisfy({ (self.lanes[$0] ?? 0) >= 0.999 }) else { return }
+            guard self.allOnIncoming else { return }
             self.decks[self.outgoing].stop()
             self.outgoing = self.incoming
             self.incomingStartBeat = nil
-            for b in Band.allCases { self.lanes[b] = 0 }
-            self.applyGains()
+            // Lanes stay where they are: the new outgoing deck is now fully up.
             self.onChange?()
         }
     }
@@ -153,7 +267,7 @@ public final class MixEngine {
     /// Call it regularly (the app calls it 30 times a second).
     public func syncTick(interval dt: Double) {
         let inc = decks[incoming], out = decks[outgoing]
-        guard inc.isPlaying, out.isPlaying, incomingStartBeat == nil || (outgoingBeat() ?? 0) >= (incomingStartBeat ?? 0),
+        guard syncOn, inc.isPlaying, out.isPlaying, incomingStartBeat == nil || (outgoingBeat() ?? 0) >= (incomingStartBeat ?? 0),
               let ib = inc.currentBeat(), let ob = out.currentBeat(), ib >= 0 else { return }
         let diff = ob - ib
         let e = diff - diff.rounded()

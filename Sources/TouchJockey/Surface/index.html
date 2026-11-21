@@ -2,10 +2,10 @@
 <html lang="en"><head>
 <meta charset="utf-8">
 <!-- ds-allow-hardcode: standalone surface page; colours live in the :root tokens below, sizes are layout values -->
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="theme-color" content="#0b0c0f">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-title" content="Touch Jockey">
@@ -18,15 +18,16 @@
 :root{--bg:#0b0c0f;--panel:#15171c;--line:#2a2e38;--text:#eceef2;--mute:#8b909c;
 --A:#5cb8ff;--B:#ff9a3d;--gold:#ffc44d;--sky:#8fd0ff;--lav:#c49bff;--rose:#ff5f8f}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
-html,body{height:100%;position:fixed;inset:0;background:var(--bg);color:var(--text);overflow:hidden;overscroll-behavior:none;touch-action:none;
+html{height:100%;background:#0b0c0f}
+html,body{position:fixed;inset:0;background:var(--bg);color:var(--text);overflow:hidden;overscroll-behavior:none;touch-action:none;
   font-family:Inter,-apple-system,"Helvetica Neue",sans-serif;font-feature-settings:"tnum" 1}
-body{display:flex;flex-direction:column;gap:10px;
-  padding:max(12px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+body{height:100vh;display:flex;flex-direction:column;gap:10px;
+  padding:max(10px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(8px,calc(env(safe-area-inset-bottom) - 14px)) max(16px,env(safe-area-inset-left))}
 .top{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;min-height:36px}
 .trk{display:flex;align-items:center;gap:10px;min-width:0}.trk.r{flex-direction:row-reverse;text-align:right}
 .tag{flex:none;width:30px;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:800;color:#0b0c0f}
 .t1{font-weight:650;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.t2{font-size:11.5px;color:var(--mute);white-space:nowrap}
+.t2{font-size:11.5px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mid{display:flex;flex-direction:column;align-items:center;gap:5px}
 .headline{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px}
 .headline:empty,.headline span:empty{display:none}
@@ -43,34 +44,54 @@ body{display:flex;flex-direction:column;gap:10px;
 .knob{position:absolute;top:8px;bottom:8px;width:14px;margin-left:-7px;border-radius:3px;background:#fff;
   box-shadow:0 0 0 3px var(--c),0 0 0 7px #0b0c0f;pointer-events:none}
 .lane.held .knob{box-shadow:0 0 0 3px #fff,0 0 0 7px var(--c)}
-.armed{position:absolute;inset:0;border-radius:8px;box-shadow:inset 0 0 0 3px var(--gold);display:none;pointer-events:none}
-.lane.armed .armed{display:block}
+.armedRing{position:absolute;inset:0;border-radius:8px;box-shadow:inset 0 0 0 3px var(--gold);display:none;pointer-events:none}
+.lane.isArmed .armedRing{display:block}
 .foot{display:flex;justify-content:space-between;align-items:center;min-height:20px;gap:12px}
 .beats{display:flex;gap:6px;align-items:center}
 .beats span{font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--gold);margin-right:4px}
 .beats i{width:9px;height:9px;border-radius:50%;background:var(--line)}
 .beats i.on{background:var(--gold);box-shadow:0 0 0 4px #ffc44d33}
 .hint{color:var(--mute);font-size:11.5px;text-align:right}
+.info{flex:none;width:26px;height:26px;border-radius:50%;border:2px solid var(--gold);background:transparent;color:var(--gold);
+  font:700 14px Inter,sans-serif;font-style:italic}
+.tipbox{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,calc(100vw - 40px));z-index:20;
+  background:var(--panel);border:2px solid var(--gold);border-radius:10px;padding:16px 18px;font-size:17px;line-height:1.4;
+  box-shadow:0 10px 40px #000a}
+.tipbox p{margin-top:8px}.tipbox .close{color:var(--mute);font-size:13px;margin-top:12px}
 .conn{position:fixed;inset:0;background:#0b0c0fe6;display:flex;align-items:center;justify-content:center;font-weight:600;color:var(--mute);z-index:10}
 .conn.hide{display:none}
-@media (orientation:portrait){.lanes::before{content:"Turn your phone sideways for the handoff lanes";color:var(--mute);font-size:13px;text-align:center}}
+/* Portrait: both tracks on the first row, status and action centred below; shorter footer. */
+@media (orientation:portrait){
+  .top{grid-template-columns:1fr 1fr;row-gap:8px}
+  .mid{grid-column:1 / span 2;grid-row:2;flex-direction:row;justify-content:center;gap:12px}
+  .trk.r{grid-column:2;grid-row:1}
+  .lane{--x0:92px;--x1:64px}
+}
 </style></head>
 <body>
 <div class="top">
-  <div class="trk"><span class="tag" id="oTag">A</span><div style="min-width:0"><div class="t1" id="oTitle">No track</div><div class="t2" id="oMeta">outgoing</div></div></div>
+  <div class="trk"><span class="tag" id="oTag" style="background:var(--A)">A</span><div style="min-width:0"><div class="t1" id="oTitle">No track</div><div class="t2" id="oMeta"></div></div></div>
   <div class="mid">
     <div class="headline"><span id="headline"></span></div>
     <div class="bars" id="bars"><i></i><i></i><i></i><i></i></div>
     <button class="action" id="action" hidden></button>
   </div>
-  <div class="trk r"><span class="tag" id="iTag">B</span><div style="min-width:0"><div class="t1" id="iTitle">No track</div><div class="t2" id="iMeta">incoming</div></div></div>
+  <div class="trk r"><span class="tag" id="iTag" style="background:var(--B)">B</span><div style="min-width:0"><div class="t1" id="iTitle">No track</div><div class="t2" id="iMeta"></div></div></div>
 </div>
 <div class="lanes" id="lanes"></div>
 <div class="foot">
   <div class="beats" id="beats"><span id="barNo">BAR</span><i></i><i></i><i></i><i></i></div>
-  <div class="hint">Drag a lane to hand a band over · flick to swap on the next bar · two-finger tap: back to the outgoing track</div>
+  <button class="info" id="infoBtn" aria-label="How the lanes work">i</button>
 </div>
 <div class="conn" id="conn">Connecting to Touch Jockey…</div>
+<div class="tipbox" id="tipbox" hidden>
+  <b>How the lanes work</b>
+  <p>Each lane moves one part of the music between deck <b>A</b> (left) and deck <b>B</b> (right). Decks never move: after A hands over to B, the next blend goes back from B to A.</p>
+  <p><b>Drag</b> a lane to hand that band over. Move highs and mids slowly over a phrase.</p>
+  <p><b>Flick</b> a lane and it swaps exactly on the next bar. Use it on LOWS for a clean bass swap.</p>
+  <p><b>Two-finger tap</b> anywhere sends everything back to the track that is playing.</p>
+  <p class="close">Tap anywhere to close</p>
+</div>
 
 <script>
 const BANDS = [["high","HIGHS","--sky"],["mid","MIDS","--lav"],["low","LOWS","--rose"]];
@@ -82,7 +103,7 @@ for (const [band, label, color] of BANDS) {
   const el = document.createElement("div");
   el.className = "lane"; el.style.setProperty("--c", `var(${color})`);
   el.innerHTML = `<div class="fillO"></div><div class="fillI"></div><div class="det"></div>
-    <span class="name">${label}</span><span class="pct"></span><div class="track"><div class="knob"></div></div><div class="armed"></div>`;
+    <span class="name">${label}</span><span class="pct"></span><div class="track"><div class="knob"></div></div><div class="armedRing"></div>`;
   $("lanes").appendChild(el);
   lanes[band] = { el, v: 0, dragging: null, armed: false };
 }
@@ -91,19 +112,19 @@ function deckColor(name) { return name === "B" ? "var(--B)" : "var(--A)"; }
 
 function renderLane(band) {
   const L = lanes[band], v = L.v, el = L.el;
-  const o = state ? deckColor(state.out) : "var(--A)", i = state ? deckColor(state.in) : "var(--B)";
-  // Left of the handle = what has already gone to the incoming deck; right = what the outgoing deck still has.
+  // Fixed positions: deck A on the left, deck B on the right; the handle sits where the band is.
+  // The side the handle is on glows in that deck's colour; the far side fades.
   const fo = el.querySelector(".fillO"), fi = el.querySelector(".fillI");
   const pos = `calc(var(--x0) + (100% - var(--x0) - var(--x1)) * ${v})`;
   fi.style.left = "var(--x0)"; fi.style.right = "auto"; fi.style.width = `calc((100% - var(--x0) - var(--x1)) * ${v})`;
   fo.style.left = pos; fo.style.right = "0"; fo.style.width = "auto";
-  fi.style.background = `linear-gradient(90deg, color-mix(in srgb, ${i} 22%, transparent), color-mix(in srgb, ${i} 40%, transparent))`;
-  fo.style.background = `linear-gradient(90deg, color-mix(in srgb, ${o} 34%, transparent), color-mix(in srgb, ${o} 16%, transparent))`;
+  const aStrength = Math.round(12 + 28 * (1 - v)), bStrength = Math.round(12 + 28 * v);
+  fi.style.background = `linear-gradient(90deg, color-mix(in srgb, var(--A) ${aStrength}%, transparent), color-mix(in srgb, var(--A) 8%, transparent))`;
+  fo.style.background = `linear-gradient(90deg, color-mix(in srgb, var(--B) 8%, transparent), color-mix(in srgb, var(--B) ${bStrength}%, transparent))`;
   el.querySelector(".knob").style.left = `${v * 100}%`;
-  const inName = state ? state.in : "B", outName = state ? state.out : "A";
-  el.querySelector(".pct").textContent = v <= 0.005 ? `all ${outName}` : v >= 0.995 ? `all ${inName}` : `${Math.round(v * 100)}% ${inName}`;
+  el.querySelector(".pct").textContent = v <= 0.005 ? "all A" : v >= 0.995 ? "all B" : `${Math.round(v * 100)}% B`;
   el.classList.toggle("held", !!L.dragging);
-  el.classList.toggle("armed", L.armed);
+  el.classList.toggle("isArmed", L.armed);
 }
 
 // ---- connection ----
@@ -120,7 +141,8 @@ function connect() {
       const L = lanes[band];
       if (!L.dragging) {
         const nv = m.lanes[band] ?? 0;
-        if (L.armed && Math.abs(nv - L.v) > 0.5) L.armed = false;  // the flick landed
+        // The flick has landed once the lane reaches its target (or after a few seconds regardless).
+        if (L.armed && (Math.abs(nv - L.armedTo) < 0.01 || performance.now() - L.armedAt > 5000)) L.armed = false;
         L.v = nv;
       }
       renderLane(band);
@@ -132,11 +154,16 @@ function connect() {
 function renderTop() {
   const d = Object.fromEntries((state.decks || []).map(x => [x.name, x]));
   const o = d[state.out] || {}, i = d[state.in] || {};
-  $("oTag").textContent = state.out; $("oTag").style.background = deckColor(state.out);
-  $("iTag").textContent = state.in;  $("iTag").style.background = deckColor(state.in);
-  $("oTitle").textContent = o.title || "No track"; $("iTitle").textContent = i.title || "No track";
-  $("oMeta").textContent = o.loaded ? `${o.artist ? o.artist + " · " : ""}${o.bpm.toFixed(1)} BPM · ${o.playing ? "playing" : "ready"}` : "load on the laptop";
-  $("iMeta").textContent = i.loaded ? `${i.artist ? i.artist + " · " : ""}${i.playing ? (state.startsIn ? "cued, synced" : "synced") : i.bpm.toFixed(1) + " BPM · ready"}` : "load on the laptop";
+  // Fixed positions: A always on the left, B always on the right.
+  const meta = name => {
+    const x = d[name] || {};
+    if (!x.loaded) return "load on the laptop";
+    const who = x.artist ? x.artist + " · " : "";
+    if (name === state.out) return `${who}${x.bpm.toFixed(1)} BPM · ${x.playing ? "master" : "ready"}`;
+    return `${who}${x.playing ? (state.startsIn ? "cued, synced" : "synced") : x.bpm.toFixed(1) + " BPM · ready"}`;
+  };
+  $("oTitle").textContent = (d.A || {}).title || "No track"; $("oMeta").textContent = meta("A");
+  $("iTitle").textContent = (d.B || {}).title || "No track"; $("iMeta").textContent = meta("B");
   const act = $("action");
   if (!o.playing && o.loaded) { act.hidden = false; act.textContent = `Start ${state.out}`; act.dataset.cmd = "play"; }
   else if (o.playing && i.loaded && !i.playing) { act.hidden = false; act.textContent = `Bring in ${state.in} next phrase`; act.dataset.cmd = "cue"; }
@@ -147,6 +174,12 @@ function renderTop() {
   else if (o.playing) head = `${state.out} playing`;
   $("headline").textContent = head;
 }
+$("infoBtn").addEventListener("pointerdown", e => { e.stopPropagation(); $("tipbox").hidden = false; });
+// While the help box is open, any tap closes it and goes no further (so it can't move a lane).
+document.addEventListener("pointerdown", e => {
+  if ($("tipbox").hidden || e.target.id === "infoBtn") return;
+  $("tipbox").hidden = true; e.stopPropagation(); e.preventDefault();
+}, true);
 $("action").addEventListener("pointerdown", e => { e.stopPropagation(); send({ t: e.currentTarget.dataset.cmd, every: 32 }); });
 
 // Beat dots and bar counter, interpolated between state messages.
@@ -174,8 +207,8 @@ $("lanes").addEventListener("pointerdown", e => {
   e.preventDefault();
   const band = Object.keys(lanes).find(b => lanes[b].el === laneEl);
   const L = lanes[band];
-  laneEl.setPointerCapture(e.pointerId);
-  pointers.set(e.pointerId, { band, x0: e.clientX, v0: L.v, w: laneEl.clientWidth - 184, hist: [[performance.now(), e.clientX]], moved: 0, t0: performance.now() });
+  try { laneEl.setPointerCapture(e.pointerId); } catch (_) {}
+  pointers.set(e.pointerId, { band, x0: e.clientX, v0: L.v, w: laneEl.clientWidth - (parseFloat(getComputedStyle(laneEl).getPropertyValue('--x0')) + parseFloat(getComputedStyle(laneEl).getPropertyValue('--x1'))), hist: [[performance.now(), e.clientX]], moved: 0, t0: performance.now() });
   recentDowns = recentDowns.filter(t => performance.now() - t < 250); recentDowns.push(performance.now());
   if (!L.dragging) { L.dragging = e.pointerId; send({ t: "grab", band }); }
   renderLane(band);
@@ -213,7 +246,7 @@ function endPointer(e) {
     const dt = (b[0] - a[0]) / 1000, vel = dt > 0 ? (b[1] - a[1]) / p.w / dt : 0;  // lane widths per second
     if (Math.abs(vel) > 2.2 && p.moved > 20) {
       const to = vel > 0 ? 1 : 0;
-      L.v = p.v0; L.armed = true;              // stays put until the swap lands
+      L.v = p.v0; L.armed = true; L.armedTo = to; L.armedAt = performance.now();   // stays put until the swap lands
       send({ t: "lane", band: p.band, v: p.v0 });
       send({ t: "flick", band: p.band, to });
     } else {
@@ -233,6 +266,13 @@ async function lockScreenAwake() {
   try { if (!wakeLock && navigator.wakeLock) wakeLock = await navigator.wakeLock.request("screen"); } catch (_) {}
 }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { wakeLock = null; lockScreenAwake(); } });
+
+// iOS home-screen web apps report a wrong 100vh (leaving a black band at the bottom),
+// so size the page to the real window height.
+function fitHeight() { document.body.style.height = `${window.innerHeight}px`; }
+window.addEventListener("resize", fitHeight);
+window.addEventListener("orientationchange", () => setTimeout(fitHeight, 250));
+fitHeight();
 
 for (const [band] of BANDS) renderLane(band);
 connect();
