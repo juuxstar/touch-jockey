@@ -75,6 +75,33 @@ body{height:100vh;display:flex;flex-direction:column;gap:10px;
 .vertical .endA,.vertical .endB{display:block}
 .endA,.endB{display:none;position:absolute;left:8px;font-size:10px;font-weight:800;pointer-events:none}
 .endA{top:calc(var(--y0) - 14px);color:var(--A)}.endB{bottom:calc(var(--y1) - 14px);color:var(--B)}
+/* Mixer screen (blend level "mixer"): deck A's strip on the left, B's on the right with the
+   volume faders next to the centre, and the crossfader along the bottom. Each control is a
+   digital level like the lanes: bordered container, filled level, indicator line, readout. */
+.mixer{flex:1;display:flex;flex-direction:column;gap:10px;min-height:0}
+.mixer[hidden],.lanes[hidden]{display:none}
+.strips{flex:1;display:flex;gap:6px;min-height:0}
+.strip{flex:1;display:flex;gap:6px;min-width:0}
+.centreGap{flex:none;width:8px}
+.ch{flex:1;display:flex;flex-direction:column;gap:5px;min-width:0;max-width:96px}
+.strip.left{justify-content:flex-start}.strip.right{justify-content:flex-end}
+.chName{text-align:center;font-size:11px;font-weight:800;letter-spacing:.1em;color:var(--c)}
+.mx{position:relative;flex:1;border:2.5px solid var(--c);border-radius:10px;background:#101318;overflow:hidden;touch-action:none}
+.mxFill,.mxDet,.mxLine,.mxVal{position:absolute;pointer-events:none}
+.mxFill{left:0;right:0;background:color-mix(in srgb,var(--c) 32%,transparent)}
+.mxDet{left:5px;right:5px;height:1px;background:#ffffff38}
+.mxLine{left:4px;right:4px;height:3px;margin-top:-1.5px;border-radius:2px;background:#fff;box-shadow:0 0 6px var(--c)}
+.mxVal{left:0;right:0;text-align:center;font-size:11.5px;font-weight:600;letter-spacing:-.02em;white-space:nowrap;overflow:hidden}
+.mxVal small{font-size:9px;font-weight:600;margin-left:1px}
+.mx.isHeld{border-color:#fff}
+.mx.isKill{border-style:dashed;border-color:color-mix(in srgb,var(--c) 55%,transparent)}
+.mx.isKill .mxFill,.mx.isKill .mxLine{display:none}
+.mx.isKill .mxVal{top:50% !important;bottom:auto !important;transform:translateY(-50%);color:var(--c);font-weight:800;letter-spacing:.08em}
+.xfRow{flex:none;display:flex;align-items:center;gap:10px;height:54px}
+.xfRow b{font-weight:800;font-size:14px}
+.mx.horiz{height:100%}
+.mx.horiz .mxDet{top:5px;bottom:5px;left:auto;right:auto;width:1px;height:auto}
+.mx.horiz .mxLine{top:4px;bottom:4px;left:auto;right:auto;width:3px;height:auto;margin:0 0 0 -1.5px}
 @media (orientation:portrait){
   .top{grid-template-columns:1fr 1fr;row-gap:8px}
   .mid{grid-column:1 / span 2;grid-row:2;flex-direction:row;justify-content:center;gap:12px}
@@ -92,17 +119,31 @@ body{height:100vh;display:flex;flex-direction:column;gap:10px;
   <div class="trk r"><span class="tag" id="iTag" style="background:var(--B)">B</span><div style="min-width:0"><div class="t1" id="iTitle">No track</div><div class="t2" id="iMeta"></div></div></div>
 </div>
 <div class="lanes" id="lanes"></div>
+<div class="mixer" id="mixer" hidden>
+  <div class="strips"><div class="strip left" id="stripA"></div><div class="centreGap"></div><div class="strip right" id="stripB"></div></div>
+  <div class="xfRow" id="xfRow"><b style="color:var(--A)">A</b><b style="color:var(--B)">B</b></div>
+</div>
 <div class="foot">
   <div class="beats" id="beats"><span id="barNo">BAR</span><i></i><i></i><i></i><i></i></div>
   <button class="info" id="infoBtn" aria-label="How the lanes work">i</button>
 </div>
 <div class="conn" id="conn">Connecting to Touch Jockey…</div>
 <div class="tipbox" id="tipbox" hidden>
+  <div id="tipMixer" hidden>
+  <b>How the mixer works</b>
+  <p>Deck <b>A</b>'s channel is on the left and deck <b>B</b>'s on the right, with the volume faders in the middle.</p>
+  <p><b>HIGH</b>, <b>MID</b> and <b>LOW</b> turn one part of a track up or down. At the bottom it's <b>killed</b> (silent); the centre line is unchanged.</p>
+  <p><b>Classic blend:</b> bring the new track in with its LOW killed, then swap the basslines on a phrase.</p>
+  <p>The <b>crossfader</b> along the bottom blends A and B. In the centre both play at full.</p>
+  <p><b>Drag</b> to move, <b>double-tap</b> to reset. To finish, stop the old track on the laptop.</p>
+  </div>
+  <div id="tipLanes">
   <b>How the lanes work</b>
   <p>Each lane moves one part of the music between deck <b>A</b> and deck <b>B</b>: A at the top and B at the bottom when the phone is upright, A left and B right when it's sideways. Decks never move: after A hands over to B, the next blend goes back from B to A.</p><p>Upright, the three lanes sit side by side, so <b>three fingers</b> can each slide one.</p>
   <p><b>Drag</b> a lane to hand that band over. Move highs and mids slowly over a phrase.</p>
   <p><b>Flick</b> a lane and it swaps exactly on the next bar. Use it on LOWS for a clean bass swap.</p>
   <p><b>Two-finger tap</b> anywhere sends everything back to the track that is playing.</p>
+  </div>
   <p class="close">Tap anywhere to close</p>
 </div>
 
@@ -169,6 +210,7 @@ function connect() {
       }
       renderLane(band);
     }
+    renderMixer();
     renderTop();
   };
 }
@@ -192,7 +234,7 @@ function renderTop() {
   else act.hidden = true;
   let head = "";
   if (state.startsIn != null) head = `${state.in} drops in ${Math.max(1, Math.ceil(state.startsIn / 4))} bar${Math.ceil(state.startsIn / 4) > 1 ? "s" : ""}`;
-  else if (o.playing && i.playing) head = `Handoff ${state.out} → ${state.in}`;
+  else if (o.playing && i.playing) head = mixerMode ? `Mixing ${state.out} → ${state.in}` : `Handoff ${state.out} → ${state.in}`;
   else if (o.playing) head = `${state.out} playing`;
   $("headline").textContent = head;
 }
@@ -286,6 +328,152 @@ function endPointer(e) {
 }
 $("lanes").addEventListener("pointerup", endPointer);
 $("lanes").addEventListener("pointercancel", endPointer);
+
+// ---- mixer screen (blend level "mixer") ----
+// Same rules as the lanes: relative drags, one pointer per control, grab/release ownership
+// with a control id ("eq:A:low", "vol:B", "xfade"). Double-tap resets a control.
+let mixerMode = false;
+const MX = {};   // id -> {id, el, kind, deck, band, v, drag, lastTapUp}
+const MX_INSET = 7;   // px kept clear at each end so the indicator stays inside the border
+const EQ_CUT = 30, EQ_BOOST = 6;
+function eqGain(v) {
+  if (v <= 0.02) return 0;
+  const db = v >= 0.5 ? (v - 0.5) / 0.5 * EQ_BOOST : (v / 0.5 - 1) * EQ_CUT;
+  return Math.pow(10, db / 20);
+}
+const minus = t => t.replace("-", "−");
+function eqText(v) {
+  const g = eqGain(v); if (g === 0) return "KILL";
+  const db = 20 * Math.log10(g);
+  return Math.abs(db) < 0.5 ? "0 dB" : minus(`${db > 0 ? "+" : ""}${Math.round(db)} dB`);
+}
+function volText(v) {
+  const g = v * v; if (g === 0) return "−∞";
+  const db = 20 * Math.log10(g);
+  return Math.abs(db) < 0.5 ? "0 dB" : minus(`${Math.round(db)} dB`);
+}
+function mkControl(parent, c, label, color, horiz) {
+  const wrap = document.createElement("div");
+  const el = document.createElement("div");
+  el.className = "mx" + (horiz ? " horiz" : "");
+  el.style.setProperty("--c", `var(${color})`);
+  el.innerHTML = `<div class="mxFill"></div>${c.kind !== "vol" ? '<div class="mxDet"></div>' : ""}<div class="mxLine"></div><div class="mxVal"></div>`;
+  if (horiz) { el.style.flex = "1"; parent.insertBefore(el, parent.lastElementChild); }
+  else {
+    wrap.className = "ch"; wrap.style.setProperty("--c", `var(${color})`);
+    wrap.appendChild(el);
+    const n = document.createElement("div"); n.className = "chName"; n.textContent = label; wrap.appendChild(n);
+    parent.appendChild(wrap);
+  }
+  el.dataset.id = c.id;
+  MX[c.id] = Object.assign(c, { el, horiz: !!horiz, drag: null, lastTapUp: 0 });
+}
+const EQ_BANDS = [["high", "HIGH", "--sky"], ["mid", "MID", "--lav"], ["low", "LOW", "--rose"]];
+for (const [deck, strip] of [["A", "stripA"], ["B", "stripB"]]) {
+  const vol = () => mkControl($(strip), { id: `vol:${deck}`, kind: "vol", deck, v: 1 }, "VOL", `--${deck}`);
+  if (deck === "B") vol();   // mirrored: both volume faders sit next to the centre
+  for (const [band, label, color] of EQ_BANDS) mkControl($(strip), { id: `eq:${deck}:${band}`, kind: "eq", deck, band, v: 0.5 }, label, color);
+  if (deck === "A") vol();
+}
+mkControl($("xfRow"), { id: "xfade", kind: "xfade", v: 0.5 }, "", "--gold", true);
+for (const id in MX) renderControl(MX[id]);
+
+function renderControl(c) {
+  const el = c.el, v = c.v;
+  const at = x => `calc(${MX_INSET}px + (100% - ${2 * MX_INSET}px) * ${c.horiz ? x : 1 - x})`;
+  const fill = el.querySelector(".mxFill"), line = el.querySelector(".mxLine"), val = el.querySelector(".mxVal"), det = el.querySelector(".mxDet");
+  if (c.horiz) {
+    line.style.left = at(v); det.style.left = at(0.5);
+    // A/B tint by position, like the lanes: blue towards A, orange towards B.
+    fill.style.cssText = `inset:0;background:color-mix(in srgb, color-mix(in srgb, var(--A) ${Math.round((1 - v) * 100)}%, var(--B)) 24%, transparent)`;
+    val.textContent = "";
+  } else {
+    line.style.top = at(v);
+    if (det) det.style.top = at(0.5);
+    const base = c.kind === "vol" ? 0 : 0.5;
+    const lo = Math.min(base, v), hi = Math.max(base, v);
+    fill.style.top = c.kind === "vol" ? at(v) : at(hi);
+    fill.style.bottom = c.kind === "vol" ? "0" : `calc(100% - ${at(lo)})`;
+    // The number at full size, the unit smaller, so "−12 dB" fits a narrow portrait strip.
+    const txt = c.kind === "vol" ? volText(v) : eqText(v), unit = txt.endsWith(" dB");
+    val.textContent = unit ? txt.slice(0, -3) : txt;
+    if (unit) { const u = document.createElement("small"); u.textContent = "dB"; val.appendChild(u); }
+    // Keep the readout out of the indicator's way: at the top when the level is low.
+    if (v < 0.6) { val.style.top = "6px"; val.style.bottom = ""; } else { val.style.top = ""; val.style.bottom = "6px"; }
+  }
+  el.classList.toggle("isKill", c.kind === "eq" && eqGain(v) === 0);
+  el.classList.toggle("isHeld", !!c.drag);
+}
+function sendControl(c) {
+  const deck = c.deck;
+  if (c.kind === "eq") send({ t: "eq", deck, band: c.band, v: c.v });
+  else if (c.kind === "vol") send({ t: "volume", deck, v: c.v });
+  else send({ t: "xfade", v: c.v });
+}
+function renderMixer() {
+  const m = !!(state.ladder && state.ladder.blend === "mixer");
+  if (m !== mixerMode) {
+    mixerMode = m;
+    $("mixer").hidden = !m; $("lanes").hidden = m;
+    $("tipMixer").hidden = !m; $("tipLanes").hidden = m;
+    $("infoBtn").setAttribute("aria-label", m ? "How the mixer works" : "How the lanes work");
+  }
+  for (const id in MX) {
+    const c = MX[id];
+    if (!c.drag) {
+      if (c.kind === "eq") c.v = ((state.eq || [])[c.deck === "B" ? 1 : 0] || {})[c.band] ?? 0.5;
+      else if (c.kind === "vol") c.v = (state.volume || [])[c.deck === "B" ? 1 : 0] ?? 1;
+      else c.v = state.xfade ?? 0.5;
+    }
+    renderControl(c);
+  }
+}
+
+const mxPointers = new Map(); // pointerId -> {c, start, v0, len, moved, t0}
+let mxPending = {};
+$("mixer").addEventListener("pointerdown", e => {
+  const el = e.target.closest(".mx"); if (!el) return;
+  e.preventDefault();
+  const c = MX[el.dataset.id]; if (c.drag) return;   // one finger per control
+  try { el.setPointerCapture(e.pointerId); } catch (_) {}
+  const len = (c.horiz ? el.clientWidth : el.clientHeight) - 2 * MX_INSET;
+  mxPointers.set(e.pointerId, { c, start: c.horiz ? e.clientX : e.clientY, v0: c.v, len, moved: 0, t0: performance.now() });
+  c.drag = e.pointerId;
+  send({ t: "grab", control: c.id });
+  renderControl(c);
+  lockScreenAwake();
+});
+$("mixer").addEventListener("pointermove", e => {
+  const p = mxPointers.get(e.pointerId); if (!p) return;
+  e.preventDefault();
+  const c = p.c, pos = c.horiz ? e.clientX : e.clientY;
+  const d = (c.horiz ? pos - p.start : p.start - pos);   // up / right = more
+  p.moved = Math.max(p.moved, Math.abs(d));
+  let v = Math.min(1, Math.max(0, p.v0 + d / Math.max(1, p.len)));
+  if (c.kind !== "vol" && Math.abs(v - 0.5) < 0.03) v = 0.5;   // detent: unity / centre
+  c.v = v;
+  renderControl(c);
+  if (!mxPending[c.id]) {
+    mxPending[c.id] = true;
+    requestAnimationFrame(() => { mxPending[c.id] = false; sendControl(c); });
+  }
+});
+function mxEnd(e) {
+  const p = mxPointers.get(e.pointerId); if (!p) return;
+  mxPointers.delete(e.pointerId);
+  const c = p.c, now = performance.now();
+  if (p.moved < 8 && now - p.t0 < 300) {
+    // Double-tap resets: EQ to unity, volume to full, crossfader to the centre.
+    if (now - c.lastTapUp < 350) { c.v = c.kind === "vol" ? 1 : 0.5; c.lastTapUp = 0; }
+    else c.lastTapUp = now;
+  }
+  sendControl(c);
+  c.drag = null;
+  send({ t: "release", control: c.id });
+  renderControl(c);
+}
+$("mixer").addEventListener("pointerup", mxEnd);
+$("mixer").addEventListener("pointercancel", mxEnd);
 
 // Keep the screen (and its Wi-Fi radio) awake while playing, where the browser allows it.
 let wakeLock = null;
