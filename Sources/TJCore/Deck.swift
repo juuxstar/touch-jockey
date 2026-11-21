@@ -145,6 +145,12 @@ public final class Deck {
         return (Double(segmentStartFrame + pt.sampleTime) / f.processingFormat.sampleRate, nodeTime)
     }
 
+    /// Where a stopped deck sits: its paused position, or its cue point.
+    public var parkedBeat: Double { pausedBeat ?? cueBeat }
+
+    /// True once a stopped deck has been moved off bar 1 (jogged, paused or cued elsewhere).
+    public var isParkedAway: Bool { !isPlaying && (pausedBeat != nil || cueBeat > 0) }
+
     /// Current beat index, or nil when stopped.
     public func currentBeat() -> Double? {
         guard let g = grid, let p = position() else { return nil }

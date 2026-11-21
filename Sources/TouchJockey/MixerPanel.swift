@@ -300,6 +300,7 @@ struct MixerSlider: View {
                 .strokeBorder(killed ? color.opacity(0.55) : color, style: StrokeStyle(lineWidth: 2.5, dash: killed ? [4, 3] : [])))
             .brightness(hover ? 0.04 : 0)
             .contentShape(RoundedRectangle(cornerRadius: 10))
+            .slideCursor(axis)   // arrows: "slide me"
             .gesture(DragGesture(minimumDistance: 1)
                 .onChanged { d in
                     let start = dragStart ?? value

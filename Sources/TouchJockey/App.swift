@@ -30,7 +30,7 @@ struct TouchJockeyApp: App {
                         .preferredColorScheme(.dark)
                 }
                 .sheet(isPresented: $model.showGuide) {
-                    GuideView().id(uiScale).preferredColorScheme(.dark)
+                    GuideView().id(uiScale).environmentObject(model).preferredColorScheme(.dark)
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -209,6 +209,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             mainColumn
             LibraryView().frame(minHeight: 170, maxHeight: .infinity)
+            if let ch = m.practiceChapter { practiceBar(ch) }
             statusLine
         }
         .padding(.horizontal, 12)
@@ -248,6 +249,8 @@ struct ContentView: View {
                             **The gold line** marks where the incoming track starts. **Dashed** means it isn't cued yet: it only shows the next phrase. **Click the timeline** (or press **Next phrase**) to start it there.
 
                             **Colour**: bright for the **bass**, the lighter outline for everything else.
+
+                            **Jog**: drag a **stopped** deck's waveform left or right to move through it; it snaps to the nearest beat when you let go. Press **CUE** there to make it the cue point, or **PLAY** to start from there. A playing deck can't be dragged, so it never slips out of sync.
                             """)
                             .padding(6)
                     }
@@ -258,6 +261,27 @@ struct ContentView: View {
             }
             .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// Shown after "Go practice" in the guide: what you're practising, the exercise, and the way back.
+    func practiceBar(_ ch: GuideChapter) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "figure.dance").foregroundColor(TJ.sky)
+            Text("Practising").font(.tj(11, weight: .heavy)).tracking(1).foregroundColor(TJ.sky)
+            Text(ch.title).font(.tj(13, weight: .semibold)).lineLimit(1)
+            if let steps = ch.practice {
+                InfoTip("**Practice: \(ch.title)**\n\n" + steps)
+            }
+            Spacer()
+            Button { m.showGuide = true } label: { Label("Back to the guide", systemImage: "book") }
+                .tjButton(TJ.gold, filled: true)
+            Button { m.practiceChapter = nil } label: { Image(systemName: "xmark") }
+                .tjButton(TJ.mute)
+                .tip("**Stop practising**: hide this bar. The guide remembers where you were.")
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 10).fill(TJ.sky.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(TJ.sky, lineWidth: 2))
     }
 
     var statusLine: some View {
@@ -277,7 +301,21 @@ struct ContentView: View {
     func deckCard(_ i: Int) -> some View {
         let d = m.decks[i]
         let isOut = m.outgoing == i
-        return Panel(color: TJ.deck(i)) {
+        return deckCardBody(i, d, isOut)
+            // Role label tucked into the card's top-right corner.
+            .overlay(alignment: .topTrailing) {
+                HStack(spacing: 6) {
+                    Cap(text: isOut ? "Outgoing" : "Incoming")
+                    InfoTip(isOut
+                        ? "**Outgoing deck**: the track the crowd hears now.\n\nIt's the **master**, so it sets the tempo. You blend away from it with the **handoff lanes**."
+                        : "**Incoming deck**: the next track.\n\n1. **Load** it from the library.\n2. **Start** it: it plays silently, synced to the master.\n3. **Move the lanes** to bring it in.\n\nWhen every lane reaches it, it becomes the outgoing deck.")
+                }
+                .padding(.top, 7).padding(.trailing, 10)
+            }
+    }
+
+    private func deckCardBody(_ i: Int, _ d: AppModel.DeckInfo, _ isOut: Bool) -> some View {
+        Panel(color: TJ.deck(i)) {
             HStack(spacing: 10) {
                 Text(d.name).font(.tj(15, weight: .heavy)).foregroundColor(.black)
                     .frame(width: 30, height: 30).background(TJ.deck(i)).clipShape(RoundedRectangle(cornerRadius: 6))
@@ -285,11 +323,7 @@ struct ContentView: View {
                     Text(d.title.isEmpty ? "No track" : d.title).font(.tj(14, weight: .semibold)).lineLimit(1)
                     Text((d.artist.isEmpty ? "" : d.artist + " · ") + meta(d)).font(.tj(12)).foregroundColor(TJ.mute).monospacedDigit()
                 }
-                Spacer()
-                Cap(text: isOut ? "Outgoing" : "Incoming")
-                InfoTip(isOut
-                    ? "**Outgoing deck**: the track the crowd hears now.\n\nIt's the **master**, so it sets the tempo. You blend away from it with the **handoff lanes**."
-                    : "**Incoming deck**: the next track.\n\n1. **Load** it from the library.\n2. **Start** it: it plays silently, synced to the master.\n3. **Move the lanes** to bring it in.\n\nWhen every lane reaches it, it becomes the outgoing deck.")
+                Spacer(minLength: 90)   // room for the role label in the corner
             }
             HStack {
                 if d.loading {

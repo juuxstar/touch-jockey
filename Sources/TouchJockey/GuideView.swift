@@ -8,6 +8,15 @@ struct GuideChapter: Identifiable, Hashable {
     let title: String       // the chapter's "# " heading
     let body: String        // everything after the heading
 
+    /// The chapter's "## Practice" section, if it has one (the exercise shown while practising).
+    var practice: String? {
+        guard let r = body.range(of: "## Practice") else { return nil }
+        let rest = body[r.upperBound...]
+        let end = rest.range(of: "\n## ")?.lowerBound ?? rest.endIndex
+        let text = rest[..<end].trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
     static func loadAll() -> [GuideChapter] {
         let folder: URL = {
             if let r = Bundle.main.resourceURL?.appendingPathComponent("Guide"),
@@ -42,6 +51,7 @@ enum GuideKey {
 /// automatically on first launch.
 struct GuideView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var app: AppModel
     @State private var chapters = GuideChapter.loadAll()
     @State private var current: String = UserDefaults.standard.string(forKey: GuideKey.current) ?? ""
     @State private var done: Set<String> = Set(UserDefaults.standard.stringArray(forKey: GuideKey.done) ?? [])
@@ -134,6 +144,14 @@ struct GuideView: View {
                       systemImage: done.contains(ch.id) ? "checkmark.circle.fill" : "checkmark.circle")
             }
             .tjButton(TJ.mint, filled: done.contains(ch.id))
+            if ch.practice != nil {
+                Button {
+                    app.practiceChapter = ch
+                    dismiss()
+                } label: { Label("Go practice", systemImage: "figure.dance") }
+                .tjButton(TJ.sky)
+                .tip("**Go practice**: close the guide and try this chapter's exercise. A practice bar keeps the steps at hand, and brings you back here when you're ready.")
+            }
             if index < chapters.count - 1 {
                 Button { current = chapters[index + 1].id } label: { Label("Next", systemImage: "chevron.right") }
                     .tjButton(TJ.gold, filled: true)

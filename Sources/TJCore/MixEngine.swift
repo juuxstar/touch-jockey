@@ -203,6 +203,15 @@ public final class MixEngine {
         onChange?()
     }
 
+    /// Jog a stopped deck to a beat (it plays from there; CUE then sets the cue point there).
+    /// Does nothing while the deck plays, so a jog can never knock a playing track out of sync.
+    public func seek(deck i: Int, toBeat beat: Double) {
+        let d = decks[i]
+        guard let g = d.grid, !d.isPlaying else { return }
+        d.pausedBeat = min(max(0, beat), g.beat(atSeconds: g.duration) - 1)
+        onChange?()
+    }
+
     /// Pause one deck, remembering its position.
     public func pause(deck i: Int) {
         let d = decks[i]

@@ -9,23 +9,47 @@ import TJCore
 struct DeckTimeline: View {
     let mix: MixEngine
     var beatsVisible: Double = 48
+    @State private var dragDeck: Int?
+    @State private var dragFromBeat: Double = 0
 
     var body: some View {
         // Reading the frame's date inside the Canvas makes SwiftUI redraw it every frame;
         // without that it treats the drawing as unchanged and the waveform stands still.
-        TimelineView(.animation) { timeline in
-            Canvas { ctx, size in
-                _ = timeline.date
-                draw(ctx, size)
-            }
-            // Clicking the timeline cues the incoming track at the next phrase (when it isn't playing yet).
-            .contentShape(Rectangle())
-            .pointingHandCursor()   // clicking cues the incoming track
-            .onTapGesture {
-                let inc = mix.decks[mix.incoming]
-                if inc.grid != nil, !inc.isPlaying, mix.decks[mix.outgoing].isPlaying { mix.cueIncoming(every: 32) }
+        GeometryReader { geo in
+            TimelineView(.animation) { timeline in
+                Canvas { ctx, size in
+                    _ = timeline.date
+                    draw(ctx, size)
+                }
+                .contentShape(Rectangle())
+                .pointingHandCursor()
+                // Drag a stopped deck's waveform to jog it back and forth (snaps to the beat on release).
+                .gesture(DragGesture(minimumDistance: 4)
+                    .onChanged { g in jog(g, size: geo.size) }
+                    .onEnded { _ in
+                        if let i = dragDeck { mix.seek(deck: i, toBeat: mix.decks[i].parkedBeat.rounded()) }
+                        dragDeck = nil
+                    })
+                // Clicking cues the incoming track at the next phrase (when it isn't playing yet).
+                .onTapGesture {
+                    let inc = mix.decks[mix.incoming]
+                    if inc.grid != nil, !inc.isPlaying, mix.decks[mix.outgoing].isPlaying { mix.cueIncoming(every: 32) }
+                }
             }
         }
+    }
+
+    /// Dragging left moves the music left, so the deck moves later in the track (like sliding paper).
+    private func jog(_ g: DragGesture.Value, size: CGSize) {
+        if dragDeck == nil {
+            let deck = g.startLocation.y < size.height / 2 ? 0 : 1     // A on top, B below
+            guard mix.decks[deck].grid != nil, !mix.decks[deck].isPlaying else { return }
+            dragDeck = deck
+            dragFromBeat = mix.decks[deck].parkedBeat
+        }
+        guard let i = dragDeck else { return }
+        let ppb = size.width / beatsVisible
+        mix.seek(deck: i, toBeat: dragFromBeat - Double(g.translation.width / ppb))
     }
 
     private func draw(_ ctx: GraphicsContext, _ size: CGSize) {
@@ -35,14 +59,16 @@ struct DeckTimeline: View {
         let laneGap: CGFloat = 8
         let laneH = (size.height - laneGap) / 2
 
-        let outNow = out.currentBeat() ?? 0
+        let outNow = out.currentBeat() ?? out.parkedBeat
         // Incoming beat at this moment, on the outgoing deck's timeline.
         let startBeat: Double = {
             if let s = mix.incomingStartBeat { return s }
             if inc.isPlaying, let ib = inc.currentBeat() { return outNow - ib }
             return (floor(outNow / 32) + 1) * 32          // preview: next phrase
         }()
-        let incNow = outNow - startBeat
+        // A stopped incoming deck that has been jogged shows where it sits, at the playhead.
+        let incParked = inc.isParkedAway && mix.incomingStartBeat == nil
+        let incNow = incParked ? inc.parkedBeat : outNow - startBeat
         let incPreview = !inc.isPlaying
 
         // Beat, bar and phrase lines across both lanes.
@@ -70,7 +96,7 @@ struct DeckTimeline: View {
              rect: laneRect(mix.incoming), ppb: ppb, playX: playX, dim: incPreview)
 
         // Where the incoming track starts.
-        if inc.grid != nil {
+        if inc.grid != nil, !incParked {
             let x = playX + CGFloat(startBeat - outNow) * ppb
             if x > 0, x < size.width {
                 var line = Path()

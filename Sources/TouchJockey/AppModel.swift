@@ -25,6 +25,8 @@ final class AppModel: ObservableObject {
     @Published var loadedPaths: [String?] = [nil, nil]
     @Published var showSettings = false
     /// The built-in DJ guide. Opens by itself the first time the app runs.
+    /// The guide chapter being practised: shown in the practice bar until the user stops or goes back.
+    @Published var practiceChapter: GuideChapter?
     @Published var showGuide = !UserDefaults.standard.bool(forKey: GuideKey.seen) {
         didSet { if showGuide { UserDefaults.standard.set(true, forKey: GuideKey.seen) } }
     }
