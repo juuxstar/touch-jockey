@@ -134,9 +134,11 @@ check("lanes stayed on B", Band.allCases.allSatisfy { mix.lanes[$0] == 1 })
 
 print("\n9. Flick timing: snap lands on the next bar, free lands now")
 mix.flick(.low, to: 0)
-if let t = timeToMove(.low, from: 1), let beat = mix.outgoingBeat() {
+// The swap lands where the bar is *heard*, so compare with the heard beat. (The lane state moves
+// just after the gains; scripts/flick_timing.sh measures the gains to the sample.)
+if let t = timeToMove(.low, from: 1), let beat = mix.decks[mix.outgoing].heardBeat() {
     let inBar = beat.truncatingRemainder(dividingBy: 4)
-    print(String(format: "  snap: landed after %.3f s at beat %.3f (%.3f into the bar)", t, beat, inBar))
+    print(String(format: "  snap: landed after %.3f s at heard beat %.3f (%.3f into the bar)", t, beat, inBar))
     check("snap lands on a bar line (±0.1 beat)", inBar < 0.1 || inBar > 3.9)
 } else { check("snap flick landed", false) }
 wait(0.1)

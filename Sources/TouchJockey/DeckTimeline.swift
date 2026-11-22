@@ -149,8 +149,11 @@ struct DeckTimeline: View {
         let o = dim ? 0.3 : 1.0
         ctx.fill(full, with: .color(color.opacity(0.35 * o)))
         ctx.fill(low, with: .color(color.opacity(0.9 * o)))
-        ctx.draw(Text(deck.name).font(.tj(11, weight: .heavy)).foregroundColor(.black),
-                 at: CGPoint(x: rect.minX + 14, y: rect.minY + 13))
+        // This deck's own bar at the playhead, so the two decks' positions can be compared at a glance.
+        if now >= 0 {
+            ctx.draw(Text("BAR \(Int(floor(now / 4)) + 1)").font(.tj(10, weight: .heavy)).foregroundColor(color.opacity(o)),
+                     at: CGPoint(x: playX + 6, y: rect.minY + 4), anchor: .topLeading)
+        }
         ctx.fill(Path(roundedRect: CGRect(x: rect.minX + 5, y: rect.minY + 4, width: 18, height: 18), cornerRadius: 4),
                  with: .color(color))
         ctx.draw(Text(deck.name).font(.tj(11, weight: .heavy)).foregroundColor(.black),

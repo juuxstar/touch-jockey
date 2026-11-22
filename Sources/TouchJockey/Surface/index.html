@@ -46,6 +46,12 @@ body{height:100vh;display:flex;flex-direction:column;gap:10px;
 .lane.held .knob{box-shadow:0 0 0 3px #fff,0 0 0 7px var(--c)}
 .armedRing{position:absolute;inset:0;border-radius:8px;box-shadow:inset 0 0 0 3px var(--gold);display:none;pointer-events:none}
 .lane.isArmed .armedRing{display:block}
+/* A flick waiting for the bar: the knob already sits at its target, hollow and gold, and a gold
+   fill grows along the lane until the swap lands on the bar. */
+.lane.isArmed .knob{background:#0b0c0f;box-shadow:0 0 0 3px var(--gold),0 0 0 7px #0b0c0f}
+.armedFill{position:absolute;left:0;top:0;bottom:0;width:0;background:color-mix(in srgb,var(--gold) 22%,transparent);pointer-events:none;display:none}
+.vertical .armedFill{right:0;bottom:auto;width:auto;height:0}
+.lane.isArmed .armedFill{display:block}
 .foot{display:flex;justify-content:space-between;align-items:center;min-height:20px;gap:12px}
 .beats{display:flex;gap:6px;align-items:center}
 .beats span{font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--gold);margin-right:4px}
@@ -220,7 +226,7 @@ for (const [band, label, color] of BANDS) {
   const el = document.createElement("div");
   el.className = "lane"; el.style.setProperty("--c", `var(${color})`);
   el.innerHTML = `<div class="fillO"></div><div class="fillI"></div><div class="det"></div>
-    <span class="name">${label}</span><span class="pct"></span><span class="endA">A</span><span class="endB">B</span><div class="track"><div class="knob"></div></div><div class="armedRing"></div>`;
+    <span class="name">${label}</span><span class="pct"></span><span class="endA">A</span><span class="endB">B</span><div class="armedFill"></div><div class="track"><div class="knob"></div></div><div class="armedRing"></div>`;
   $("lanes").appendChild(el);
   lanes[band] = { el, v: 0, dragging: null, armed: false };
 }
@@ -233,13 +239,16 @@ function renderLane(band) {
   // The side the handle is on glows in that deck's colour; the far side fades.
   const fo = el.querySelector(".fillO"), fi = el.querySelector(".fillI"), knob = el.querySelector(".knob");
   // The whole lane is tinted by who has the band: blue when all A, orange when all B, a blend between.
-  const aPct = Math.round((1 - v) * 100);
+  // While a flick waits for the bar, the knob shows where it's going but the tint shows what you hear.
+  const heard = L.armed ? (L.actual ?? v) : v;
+  const aPct = Math.round((1 - heard) * 100);
   Object.assign(fo.style, { inset: "0", width: "auto", height: "auto",
     background: `color-mix(in srgb, color-mix(in srgb, var(--A) ${aPct}%, var(--B)) 24%, transparent)` });
   fi.style.display = "none";
   if (vertical) { knob.style.left = ""; knob.style.top = `${v * 100}%`; }      // A at the top, B at the bottom
   else          { knob.style.top = ""; knob.style.left = `${v * 100}%`; }      // A on the left, B on the right
-  el.querySelector(".pct").textContent = v <= 0.005 ? "all A" : v >= 0.995 ? "all B" : `${Math.round(v * 100)}% B`;
+  el.querySelector(".pct").textContent = L.armed ? `→ ${L.armedTo >= 0.5 ? "B" : "A"} on the bar`
+    : v <= 0.005 ? "all A" : v >= 0.995 ? "all B" : `${Math.round(v * 100)}% B`;
   el.classList.toggle("held", !!L.dragging);
   el.classList.toggle("isArmed", L.armed);
 }
@@ -258,9 +267,10 @@ function connect() {
       const L = lanes[band];
       if (!L.dragging) {
         const nv = m.lanes[band] ?? 0;
+        L.actual = nv;
         // The flick has landed once the lane reaches its target (or after a few seconds regardless).
         if (L.armed && (Math.abs(nv - L.armedTo) < 0.01 || performance.now() - L.armedAt > 5000)) L.armed = false;
-        L.v = nv;
+        L.v = L.armed ? L.armedTo : nv;
       }
       renderLane(band);
     }
@@ -338,6 +348,12 @@ function frame() {
     const left = state.startsIn != null ? state.startsIn - (beat - state.beat) : null;
     const bars = left != null ? Math.min(4, Math.ceil(left / 4)) : 0;
     document.querySelectorAll("#bars i").forEach((el, k) => el.classList.toggle("on", k < 4 - bars + 0 && left != null));
+    // Flicks waiting for the bar: the gold fill reaches the far end as the bar arrives.
+    for (const b in lanes) {
+      const L = lanes[b]; if (!L.armed || L.landBeat == null) continue;
+      const f = Math.min(1, Math.max(0, (beat - L.armBeat) / Math.max(0.25, L.landBeat - L.armBeat)));
+      L.el.querySelector(".armedFill").style[vertical ? "height" : "width"] = `${f * 100}%`;
+    }
   }
   requestAnimationFrame(frame);
 }
@@ -373,7 +389,7 @@ $("lanes").addEventListener("pointermove", e => {
   const c = vertical ? e.clientY : e.clientX;
   const dx = c - p.x0;
   p.moved = Math.max(p.moved, Math.abs(dx));
-  p.hist.push([performance.now(), c]); if (p.hist.length > 8) p.hist.shift();
+  p.hist.push([performance.now(), c]); if (p.hist.length > 24) p.hist.shift();
   L.v = Math.min(1, Math.max(0, p.v0 + dx / p.w));
   L.armed = false;
   renderLane(p.band);
@@ -393,11 +409,19 @@ function endPointer(e) {
   }
   if (L.dragging === e.pointerId) {
     // Flick: fast at release → the band jumps to the end it was thrown towards, on the next bar.
-    const h = p.hist, a = h[0], b = h[h.length - 1];
-    const dt = (b[0] - a[0]) / 1000, vel = dt > 0 ? (b[1] - a[1]) / p.w / dt : 0;  // lane widths per second
-    if (Math.abs(vel) > 2.2 && p.moved > 20) {
+    // Speed over the last ~80 ms, in screen pixels a second (not lane lengths, so a long upright
+    // lane needs no harder a flick). A finger that stopped before lifting isn't a flick.
+    const h = p.hist, b = h[h.length - 1], now = performance.now();
+    const a = h.find(x => b[0] - x[0] <= 80) || h[0];
+    const dt = (b[0] - a[0]) / 1000, vel = dt > 0.008 ? (b[1] - a[1]) / dt : 0;
+    if (Math.abs(vel) > 550 && Math.abs(b[1] - a[1]) > 12 && now - b[0] < 60) {
       const to = vel > 0 ? 1 : 0;
-      L.v = p.v0; L.armed = true; L.armedTo = to; L.armedAt = performance.now();   // stays put until the swap lands
+      // The knob goes straight to its target (shown hollow until the swap is heard), and the fill
+      // counts down to the bar it lands on. At the "free" timing level it lands at once.
+      const snap = !(state && state.ladder && state.ladder.timing === "free");
+      const beatNow = state && state.beat != null ? state.beat + (now - stateAt) / 1000 * (state.bpm / 60) : null;
+      L.armed = true; L.armedTo = to; L.armedAt = now; L.actual = p.v0; L.v = to;
+      L.armBeat = beatNow; L.landBeat = snap && beatNow != null ? (Math.floor(beatNow / 4) + 1) * 4 : null;
       send({ t: "lane", band: p.band, v: p.v0 });
       send({ t: "flick", band: p.band, to });
     } else {

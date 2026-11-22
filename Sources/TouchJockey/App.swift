@@ -333,15 +333,12 @@ struct ContentView: View {
                 }
                 Spacer(minLength: 90)   // room for the role label in the corner
             }
+            DeckPosition(mix: m.mix, deck: i, color: TJ.deck(i))
             HStack {
                 if d.loading {
                     Text("Analysing…").font(.tj(12, weight: .semibold)).foregroundColor(TJ.gold)
                 }
                 Spacer()
-                if isOut, let beat = m.beat {
-                    Text("Bar \(Int(floor(beat / 4)) + 1) · beat \(Int(floor(beat)) % 4 + 1)")
-                        .font(.tj(12, weight: .semibold)).monospacedDigit().foregroundColor(TJ.gold)
-                }
                 if !isOut {
                     Button("Bring in next bar") { m.cueIncoming(every: 4) }
                         .disabled(d.bpm == nil || !m.decks[m.outgoing].playing).tjButton(TJ.deck(i))

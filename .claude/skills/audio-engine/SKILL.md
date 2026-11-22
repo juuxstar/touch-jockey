@@ -55,6 +55,17 @@ deck volume =   1               fader gain × crossfader    (each deck's output 
   runs about 0.1% off the rate it's given, so `syncTick` runs a PI phase lock at 30 Hz
   (gains 0.3 / 0.08, correction clamped to ±1%). It locks in about 3 s, to within
   0.001 beats. Re-test alignment after changing it.
+- **Timers aimed at a beat** (a snapped Flick, the handoff's final stop) use
+  `heardTime(ofNextBoundary:)` and `fire(at:lead:on:)`, never `asyncAfter` (it may move a
+  timer by ~10% of its delay: 100+ ms on a bar). Three measured facts drive this:
+  1. A 44.1 kHz player's `lastRenderTime.hostTime` drifts about 1.5 ms/s against the system
+     clock when the output runs at 48 kHz; the **output node's** timestamps are true.
+     (`hostTime(ofNextBoundary:)` stays for `player.play(at:)`, which uses the same drifting clock.)
+  2. The time-stretcher delays the sound by `timePitch.latency` (about 93 ms), so a bar is
+     heard that much after the player renders it (`Deck.heardBeat()`).
+  3. Audio is rendered ahead of being heard, so gain changes are made that much early.
+  The gains are set on a timing thread, then the lane state follows on main.
+  `scripts/flick_timing.sh` measures it to the sample: flicks land within about ±10 ms.
 - Transport follows CDJ conventions: CUE, PLAY/PAUSE, SYNC/MASTER. CUE snaps to the
   nearest beat.
 

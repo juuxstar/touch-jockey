@@ -30,8 +30,10 @@ description: How the Touch Jockey phone/tablet web surface works, its WebSocket 
 - **Mixer controls** use the same look as the Mac's `MixerSlider`: a bordered level
   container, a fill (from the bottom for VOL, from the centre for EQ), an indicator
   line, the readout inside, and a dashed `isKill` state. Double-tap resets.
-- **Flick:** a fast release jumps the lane on the next bar. The "armed" ring clears
-  when the lane reaches its target, or after 5 s.
+- **Flick:** a release faster than about 550 px/s over the last 80 ms (screen pixels, not
+  lane lengths) jumps the lane on the next bar. The knob moves to its target at once, hollow
+  and gold, while the lane tint still shows what is heard, and a gold fill counts down to the
+  bar. The armed state clears when the lane reaches its target, or after 5 s.
 - **Two-finger tap:** back to the playing deck's side (`stable`).
 - Wrap `setPointerCapture` in try/catch: it throws for synthetic test events.
 - **CSS class names:** the element-state classes (for example `isArmed`, `isHeld`,

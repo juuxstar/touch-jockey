@@ -250,6 +250,7 @@ public final class MixEngine {
     public func setLane(_ band: Band, _ value: Double) {
         guard !mixerMode else { return }
         rampGeneration[band, default: 0] += 1   // a hand on the lane cancels a free Flick's ramp
+        flickTokens.withLock { $0[band] = nil }  // … and a snapped Flick that hasn't landed yet
         moveLane(band, value)
     }
 
@@ -267,9 +268,29 @@ public final class MixEngine {
     public func flick(_ band: Band, to target: Double) {
         guard !mixerMode else { return }
         if ladder.timing == .free { rampLane(band, to: target, over: Self.freeFlickRamp); return }
-        guard let (host, _) = hostTime(ofNextBoundary: 4) else { setLane(band, target); return }
-        at(hostTime: host) { self.setLane(band, target) }
+        guard let timing = heardTime(ofNextBoundary: 4) else { setLane(band, target); return }
+        // The gains are set on a precise timer thread, exactly at the bar (less the render lead);
+        // the lane state catches up on the main queue just after. A hand on the lane before then
+        // (`setLane`, which bumps the generation) cancels the flick.
+        rampGeneration[band, default: 0] += 1
+        let gen = rampGeneration[band] ?? 0
+        let lead = timing.lead
+        let token = flickTokens.withLock { t -> Int in t[band] = gen; return gen }
+        let a = Float(cos(target * .pi / 2)), b = Float(sin(target * .pi / 2))
+        let deckA = decks[0], deckB = decks[1]
+        atPrecise(hostTime: timing.host, lead: lead) { [weak self] in
+            guard let self, self.flickTokens.withLock({ $0[band] == token }) else { return }
+            deckA.setGain(a, band: band)
+            deckB.setGain(b, band: band)
+            DispatchQueue.main.async {
+                guard self.rampGeneration[band] == gen else { return }
+                self.moveLane(band, target)
+            }
+        }
     }
+
+    /// The flick each band is waiting to land (its generation). Read on the timing thread.
+    private let flickTokens = Locked<[Band: Int]>([:])
 
     /// Moves a lane to `target` in a few steps over `seconds`.
     private func rampLane(_ band: Band, to target: Double, over seconds: Double) {
@@ -464,9 +485,10 @@ public final class MixEngine {
     private func checkFinish() {
         guard !finishScheduled, allOnIncoming,
               decks[incoming].isPlaying,
-              let (host, _) = hostTime(ofNextBoundary: 4) else { return }
+              let timing = heardTime(ofNextBoundary: 4) else { return }
         finishScheduled = true
-        at(hostTime: host) {
+        // The old track stops as the next bar is heard.
+        Self.fire(at: timing.host, lead: timing.lead, on: .main) {
             self.finishScheduled = false
             guard !self.mixerMode, self.allOnIncoming else { return }
             self.decks[self.outgoing].stop()
@@ -517,13 +539,63 @@ public final class MixEngine {
         return (p.renderTime.hostTime + AVAudioTime.hostTime(forSeconds: wallSeconds), target)
     }
 
+    /// When the outgoing deck's next boundary is **heard**, as a true system-clock host time, and
+    /// how early a gain change must be made to land on it: (host, lead seconds, target beat).
+    ///
+    /// Not `hostTime(ofNextBoundary:)`: a 44.1 kHz player's render timestamps drift against the
+    /// system clock (about 1.5 ms a second, measured) when the output runs at 48 kHz. That's fine
+    /// for `AVAudioPlayerNode.play(at:)`, which uses the same drifting clock, but timers need the
+    /// real one. The output node's timestamps are true: each is when that buffer is heard.
+    /// The time-stretcher delays the sound by its own latency, so the bar is heard that much later.
+    func heardTime(ofNextBoundary every: Double) -> (host: UInt64, lead: Double, beat: Double)? {
+        let out = decks[outgoing]
+        guard let g = out.grid, let p = out.position(),
+              let o = engine.outputNode.lastRenderTime, o.isHostTimeValid else { return nil }
+        let beat = g.beat(atSeconds: p.seconds)
+        let target = (floor(beat / every) + 1) * every
+        let wall = (target - beat) * g.secondsPerBeat / Double(out.timePitch.rate) + out.timePitch.latency
+        // A change made now is heard from the next buffer on: as far ahead as the last buffer
+        // was rendered of being heard.
+        let now = mach_absolute_time()
+        let ahead = o.hostTime > now ? AVAudioTime.seconds(forHostTime: o.hostTime - now) : 0
+        return (o.hostTime + AVAudioTime.hostTime(forSeconds: wall), ahead + renderLead, target)
+    }
+
     /// Current beat on the outgoing deck.
     public func outgoingBeat() -> Double? { decks[outgoing].currentBeat() }
 
-    /// Runs a block on the main queue at a host time.
-    private func at(hostTime host: UInt64, _ block: @escaping () -> Void) {
-        let now = mach_absolute_time()
-        let delay = host > now ? AVAudioTime.seconds(forHostTime: host - now) : 0
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: block)
+    /// Runs a block on the timing thread `lead` seconds before `host` (see `heardTime`).
+    /// Only touch thread-safe things in the block (node volumes); hop to main for state.
+    private func atPrecise(hostTime host: UInt64, lead: Double, _ block: @escaping () -> Void) {
+        Self.fire(at: host, lead: lead, on: Self.timingQueue, block)
     }
+
+    private static let timingQueue = DispatchQueue(label: "tj.timing", qos: .userInteractive)
+
+    /// `asyncAfter` lets the system move a timer by up to ~10% of its delay (100+ ms on a bar), so
+    /// beat-timed actions use a strict timer source with no leeway instead.
+    private static func fire(at host: UInt64, lead: Double, on queue: DispatchQueue, _ block: @escaping () -> Void) {
+        let now = mach_absolute_time()
+        let delay = max(0, (host > now ? AVAudioTime.seconds(forHostTime: host - now) : 0) - lead)
+        let timer = DispatchSource.makeTimerSource(flags: .strict, queue: queue)
+        timer.schedule(deadline: .now() + delay, leeway: .nanoseconds(0))
+        timer.setEventHandler {
+            block()
+            timer.setEventHandler(handler: nil)   // break the timer ↔ handler cycle
+            timer.cancel()
+        }
+        timer.resume()
+    }
+
+    /// Extra lead (seconds) for beat-timed gain changes, on top of the measured render-ahead.
+    /// Tuned with scripts/flick_timing.sh.
+    public var renderLead: Double = 0
+}
+
+/// A value guarded by a lock, for state shared between the main and timing threads.
+final class Locked<T> {
+    private var value: T
+    private let lock = NSLock()
+    init(_ value: T) { self.value = value }
+    func withLock<R>(_ body: (inout T) -> R) -> R { lock.lock(); defer { lock.unlock() }; return body(&value) }
 }

@@ -157,6 +157,15 @@ public final class Deck {
         return g.beat(atSeconds: p.seconds)
     }
 
+    /// How long after the player renders a moment it's heard: the time-stretcher's delay (seconds).
+    public var soundDelay: Double { timePitch.latency }
+
+    /// Current beat as heard (the player's beat less the time-stretcher's delay), or nil when stopped.
+    public func heardBeat() -> Double? {
+        guard let b = currentBeat(), let g = grid else { return nil }
+        return b - soundDelay * Double(timePitch.rate) / g.secondsPerBeat
+    }
+
     /// Effective tempo after sync.
     public var playingBPM: Double? { grid.map { $0.bpm * Double(timePitch.rate) } }
 }
