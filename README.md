@@ -21,6 +21,7 @@ Working:
 - Flick to swap a band on the next bar. When every lane reaches the incoming side, the handoff finishes on the next bar and the decks swap roles.
 - A learning ladder (Settings → Your skills): blend with the handoff lanes or the full mixer, and Flick snapped to the bar or free. See [Learning ladder](#learning-ladder).
 - A conventional two-channel mixer at the mixer level: per-deck HIGH/MID/LOW EQ (kill at the bottom, 0 dB at the centre, +6 dB at the top), a volume fader per deck, and a crossfader. Mixer and lanes never act at once (see [Gain model](#gain-model)).
+- Speakers and headphones (Settings → Audio): each deck gets a headphones button that sends it to the headphones before the bands, lanes and faders, so a deck silent in the speakers is still heard there; a cue-mix slider beside the mixer sets what the headphones play (cued decks, the speaker mix, or both). Separate devices are joined in a private aggregate device; a device with four or more outputs can carry the headphones on channels 3–4.
 - Web surface for any phone or tablet:
   - relative drags and multi-touch
   - touch ownership, so two devices never fight over a lane or a mixer control
@@ -30,7 +31,8 @@ Working:
 - Mac window:
   - load tracks
   - start, cue and stop
-  - a blend panel: at the handoff level the phone's lanes (with mouse sliders), Flick, Back to and Stop all; at the mixer level two channel strips (EQ and volume fader) and a crossfader
+  - Play all (or **Space**): both decks start together, beats lined up
+  - a blend panel: at the handoff level the phone's lanes (with mouse sliders and Flick, shown read-only while a phone is connected), Back to and Stop all; at the mixer level two channel strips (EQ and volume fader) and a crossfader
   - a status-line indicator of connected phones; click it for the QR code
   - opens full screen on the laptop's built-in display
 - Settings window (**⌘,**, or the gear in the status line), so the main window keeps its space for DJing:
@@ -39,6 +41,7 @@ Working:
   - Display: text size (80-160%) and help icons
   - Library: music folder, rescan, re-analyse all tracks
   - Playback: SYNC on by default, keep the Mac awake while a deck plays
+  - Audio: the speakers' and the headphones' output devices
   - App: version and restart
 
 Not yet built (see the design doc's milestones):
@@ -47,7 +50,6 @@ Not yet built (see the design doc's milestones):
 - Timeline with sections
 - Transition window
 - Tension pad, loops and moments
-- Headphone cue
 - More learning features (beat-matching by ear, lessons)
 - Native iOS app with haptics
 
@@ -97,7 +99,8 @@ platform path. Once Xcode is installed, pin its version in `.xcode-version`.
 Sources/
   TJCore/                  audio and networking, no UI
     BeatAnalyzer.swift     onset envelope + comb search → BPM and first downbeat
-    Deck.swift             player → time-pitch (key lock) → 3 band filters → band gains
+    Deck.swift             player → time-pitch (key lock) → 3 band filters → band gains; headphone cue send
+    AudioOutputs.swift     output devices; the private speakers + headphones aggregate device
     MixEngine.swift        two decks, handoff lanes, flicks, role swap, phase lock; EQ, faders, crossfader
     SkillLadder.swift      the learning ladder: techniques and their levels
     ControlServer.swift    HTTP for the surface (8080) + WebSocket for control (8081)
@@ -111,6 +114,7 @@ Sources/
   tj-analyze/              command-line beat analysis
 scripts/drive.py           test driver that speaks the surface protocol
 scripts/mixer_test.*       muted engine test of the blend levels (links build/obj/libTJCore.a)
+scripts/outputs_test.*     muted engine test of speakers + headphones (needs a second output device)
 ```
 
 ### Learning ladder
@@ -140,7 +144,7 @@ deck goes to a stopped deck's side, so it stays silent.
 ### Gain model
 
 Each deck's signal path is player → time-pitch → three band filters → band
-gains → deck output → main mixer. Which layer drives those nodes depends on the
+gains → deck output → speaker bus → router → main mixer (see Outputs in the audio-engine skill). Which layer drives those nodes depends on the
 blend level:
 
 ```

@@ -313,9 +313,9 @@ struct ContentView: View {
             // Role label tucked into the card's top-right corner.
             .overlay(alignment: .topTrailing) {
                 HStack(spacing: 6) {
-                    Cap(text: isOut ? "Outgoing" : "Incoming")
+                    Cap(text: isOut ? "Outgoing · Master" : "Incoming")
                     InfoTip(isOut
-                        ? "**Outgoing deck**: the track the crowd hears now.\n\nIt's the **master**, so it sets the tempo. You blend away from it with the **handoff lanes**."
+                        ? "**Outgoing deck**: the track the crowd hears now.\n\nIt's the **master**: it sets the tempo, and the other deck syncs to it. You blend away from it with the **handoff lanes**."
                         : "**Incoming deck**: the next track.\n\n1. **Load** it from the library.\n2. **Start** it: it plays silently, synced to the master.\n3. **Move the lanes** to bring it in.\n\nWhen every lane reaches it, it becomes the outgoing deck.")
                 }
                 .padding(.top, 7).padding(.trailing, 10)
@@ -331,7 +331,7 @@ struct ContentView: View {
                     Text(d.title.isEmpty ? "No track" : d.title).font(.tj(14, weight: .semibold)).lineLimit(1)
                     Text((d.artist.isEmpty ? "" : d.artist + " · ") + meta(d)).font(.tj(12)).foregroundColor(TJ.mute).monospacedDigit()
                 }
-                Spacer(minLength: 90)   // room for the role label in the corner
+                Spacer(minLength: 150)   // room for the role label in the corner
             }
             DeckPosition(mix: m.mix, deck: i, color: TJ.deck(i))
             HStack {
@@ -347,7 +347,13 @@ struct ContentView: View {
                         .disabled(d.bpm == nil || !m.decks[m.outgoing].playing).tjButton(TJ.deck(i))
                         .tip("**Next phrase**: start this track from bar 1, synced, when the master reaches its next **phrase** (8 bars).\n\nPhrases are where dance tracks change, so this is the natural moment to bring a track in.")
                 }
-                // CDJ-style transport: CUE, PLAY/PAUSE, then SYNC (incoming) or MASTER (outgoing).
+                if m.headphones != nil {
+                    Button { m.toggleCue(i) } label: { Image(systemName: "headphones").frame(width: 18) }
+                        .tjButton(TJ.deck(i), filled: m.cue[i])
+                        .tip(m.cue[i] ? "**In your headphones**: this deck plays in your headphones. Click to take it out.\n\nThe crowd hears it only through the mixer."
+                                      : "**Headphones**: hear this deck in your headphones, even while it's silent in the speakers.\n\nUse it to check the next track before you bring it in.")
+                }
+                // CDJ-style transport: CUE, PLAY/PAUSE, then SYNC on the incoming deck. The master is named in the role label.
                 CueButton(color: TJ.deck(i), enabled: d.bpm != nil,
                           onDown: { m.cueDown(i) }, onUp: { m.cueUp(i) })
                     .tip(d.playing ? "**CUE**: jump back to the **cue point** and pause."
@@ -360,12 +366,7 @@ struct ContentView: View {
                 .tip(d.playing ? "**PAUSE**. Press again to carry on from here."
                       : isOut || !m.decks[m.outgoing].playing || !m.syncOn ? "**PLAY** from \(d.paused ? "where you paused" : "the cue point"), at the track's own tempo."
                       : "**PLAY**, synced to the master, starting on its next beat.\n\nIt's **silent** until you move the lanes.")
-                if isOut {
-                    Text("MASTER").font(.tj(11, weight: .heavy)).tracking(1).foregroundColor(TJ.deck(i))
-                        .padding(.horizontal, 8).padding(.vertical, 6)
-                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(TJ.deck(i).opacity(0.5), lineWidth: 1.5))
-                        .tip("**Master**: this deck sets the tempo.\n\nThe other deck syncs to it.")
-                } else {
+                if !isOut {
                     Button("SYNC") { m.toggleSync() }.tjButton(TJ.deck(i), filled: m.syncOn)
                         .tip(m.syncOn ? "**SYNC on**: this deck follows the master's **tempo** and **beat**.\n\nClick to turn it off and play at its own tempo."
                               : "**SYNC off**: this deck plays at its own tempo.\n\nClick to lock it to the master's tempo and beat.")

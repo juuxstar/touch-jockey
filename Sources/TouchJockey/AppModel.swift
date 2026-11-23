@@ -51,6 +51,12 @@ final class AppModel: ObservableObject {
     @Published var eq: [[Band: Double]] = [[.low: 0.5, .mid: 0.5, .high: 0.5], [.low: 0.5, .mid: 0.5, .high: 0.5]]
     @Published var volumes: [Double] = [1, 1]
     @Published var crossfader = 0.5
+    /// Headphone cueing, mirrored from the engine: decks sent to the headphones, the cue mix,
+    /// and the output devices in use (nil headphones = none).
+    @Published var cue = [false, false]
+    @Published var cueMix = 0.5
+    @Published var speakers: AudioOutputs.Device?
+    @Published var headphones: AudioOutputs.Device?
     /// The user's level per technique (the learning ladder), saved in UserDefaults.
     @Published var ladder = SkillLadder()
     @Published var beat: Double?
@@ -65,6 +71,7 @@ final class AppModel: ObservableObject {
     /// Which surface currently has a finger on each control (touch ownership). Keys are
     /// control ids: a lane's band ("low"), "eq:A:low", "vol:B" or "xfade".
     private var owners: [String: ControlServer.ClientID] = [:]
+    private var keyMonitor: Any?
     private var ticker: Timer?
     /// The phone page's current version (see `ControlServer.pageVersion`), re-read every 2 s.
     private var pageVersion = ""
@@ -73,6 +80,15 @@ final class AppModel: ObservableObject {
     private var awakeActivity: NSObjectProtocol?
 
     init() {
+        // Space bar = Play all, unless someone is typing in a field or a sheet (Settings, Guide) is open.
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            guard let self, e.keyCode == 49, !e.isARepeat,
+                  e.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
+                  let w = e.window, w.attachedSheet == nil, w.sheetParent == nil,
+                  !(w.firstResponder is NSText) else { return e }
+            if self.canPlayAll { self.playAll() }
+            return nil
+        }
         do { try mix.start() } catch { status = "Audio engine failed to start: \(error.localizedDescription)" }
         mix.onChange = { [weak self] in self?.refresh() }
 
@@ -95,6 +111,11 @@ final class AppModel: ObservableObject {
         syncOn = sync
         let saved = UserDefaults.standard.dictionary(forKey: SettingsKey.skillLadder) as? [String: String] ?? [:]
         mix.setLadder(SkillLadder(dictionary: saved))
+        mix.setCueMix(UserDefaults.standard.object(forKey: SettingsKey.cueMix) as? Double ?? 0.5)
+        let ud = UserDefaults.standard
+        if ud.string(forKey: SettingsKey.speakersDevice) != nil || ud.string(forKey: SettingsKey.headphonesDevice) != nil {
+            applyOutputs()
+        }
         refresh()
         applyLaunchArguments()
     }
@@ -157,6 +178,34 @@ final class AppModel: ObservableObject {
     func toggleSync() { mix.setSync(!mix.syncOn); syncOn = mix.syncOn }
     func cueIncoming(every beats: Double) { mix.cueIncoming(every: beats) }
     func stopAll() { mix.stopAll() }
+    func toggleCue(_ i: Int) { mix.setCue(deck: i, !mix.cue[i]) }
+    func setCueMix(_ v: Double) {
+        mix.setCueMix(v)
+        UserDefaults.standard.set(mix.cueMix, forKey: SettingsKey.cueMix)
+    }
+
+    /// Chooses the output devices by UID (nil speakers = the system default, nil headphones = none)
+    /// and remembers them. Playing decks pause while the audio moves to the new devices.
+    func setOutputs(speakers: String?, headphones: String?) {
+        let ud = UserDefaults.standard
+        ud.set(speakers, forKey: SettingsKey.speakersDevice)
+        ud.set(headphones, forKey: SettingsKey.headphonesDevice)
+        applyOutputs()
+    }
+
+    private func applyOutputs() {
+        let ud = UserDefaults.standard
+        let hp = ud.string(forKey: SettingsKey.headphonesDevice)
+        if !mix.setOutputs(speakers: ud.string(forKey: SettingsKey.speakersDevice), headphones: hp), hp != nil {
+            status = AudioOutputs.device(uid: hp!) == nil
+                ? "The headphones aren't connected. Plug them in, or choose others in Settings → Audio."
+                : "Couldn't use those headphones with these speakers. Choose others in Settings → Audio."
+        }
+        refresh()
+    }
+    func playAll() { mix.playAll() }
+    /// Play all would start something: a loaded deck is not playing.
+    var canPlayAll: Bool { (0..<2).contains { loadedPaths[$0] != nil && !decks[$0].playing } }
     func setLane(_ b: Band, _ v: Double) { mix.setLane(b, v) }
     func flick(_ b: Band) { mix.flick(b, to: (mix.lanes[b] ?? 0) < 0.5 ? 1 : 0) }
     func setEQ(_ deck: Int, _ b: Band, _ v: Double) { mix.setEQ(deck: deck, band: b, v) }
@@ -245,6 +294,10 @@ final class AppModel: ObservableObject {
         if volumes != mix.volumes { volumes = mix.volumes }
         if crossfader != mix.crossfader { crossfader = mix.crossfader }
         if ladder != mix.ladder { ladder = mix.ladder }
+        if cue != mix.cue { cue = mix.cue }
+        if cueMix != mix.cueMix { cueMix = mix.cueMix }
+        if speakers != mix.speakers { speakers = mix.speakers }
+        if headphones != mix.headphones { headphones = mix.headphones }
         for i in 0..<2 {
             let d = mix.decks[i]
             decks[i].title = d.title

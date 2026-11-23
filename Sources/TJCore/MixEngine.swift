@@ -59,18 +59,196 @@ public final class MixEngine {
     /// Bumped per band to cancel a free Flick's ramp when the lane is moved again.
     private var rampGeneration: [Band: Int] = [:]
 
+    // MARK: Outputs: speakers and headphones
+    //
+    //   deck output ──► programBus ──┬──────────────────────────► router in 1–2 ──► speakers
+    //                                └─► headProgram ─┐
+    //   deck cueSend ──► cueBus ─────────────────────┴─► headBus ─► router in 3–4 ──► headphones
+    //
+    // The router is Apple's matrix mixer: it puts the speaker mix on the output's first two
+    // channels and the headphone mix on the headphones' two (see `AudioOutputs`).
+
+    /// Both decks after their faders: what the speakers play.
+    let programBus = AVAudioMixerNode()
+    /// Decks sent to the headphones (their cue sends).
+    let cueBus = AVAudioMixerNode()
+    /// The speaker mix, on its way into the headphones.
+    let headProgram = AVAudioMixerNode()
+    /// What the headphones play: the cue bus and the speaker mix, balanced by `cueMix`.
+    let headBus = AVAudioMixerNode()
+    let router: AVAudioUnit
+    /// The router node, whose output carries every channel before the master volume. For tests and meters.
+    public var routerNode: AVAudioNode { router }
+
+    /// Decks sent to the headphones.
+    public private(set) var cue: [Bool] = [false, false]
+    /// Headphone mix: 0 = only the cued decks, 1 = only the speaker mix. Both full at the centre.
+    public private(set) var cueMix: Double = 0.5
+    /// The output device the speakers play on, and the headphones' device (nil = no headphones).
+    public private(set) var speakers: AudioOutputs.Device?
+    public private(set) var headphones: AudioOutputs.Device?
+    public var hasHeadphones: Bool { headphones != nil }
+    /// The devices asked for (UIDs; nil speakers = the system default), kept for re-applying
+    /// after a device change.
+    private var wantSpeakers: String?, wantHeadphones: String?
+    private var aggregate: AudioDeviceID?
+    /// First output channel of the headphones (nil = none).
+    private var headChannel: Int?
+    private var reconfiguring = false
+
     public init() {
         decks = [Deck(name: "A"), Deck(name: "B")]
-        for d in decks { d.attach(to: engine) }
+        let desc = AudioComponentDescription(componentType: kAudioUnitType_Mixer, componentSubType: kAudioUnitSubType_MatrixMixer,
+                                             componentManufacturer: kAudioUnitManufacturer_Apple, componentFlags: 0, componentFlagsMask: 0)
+        // Apple's own units instantiate in-process and call back before returning.
+        var unit: AVAudioUnit?
+        AVAudioUnit.instantiate(with: desc, options: .loadInProcess) { u, _ in unit = u }
+        router = unit!
+        var inputs: UInt32 = 2, outputs: UInt32 = 1
+        AudioUnitSetProperty(router.audioUnit, kAudioUnitProperty_ElementCount, kAudioUnitScope_Input, 0, &inputs, 4)
+        AudioUnitSetProperty(router.audioUnit, kAudioUnitProperty_ElementCount, kAudioUnitScope_Output, 0, &outputs, 4)
+        for n in [programBus, cueBus, headProgram, headBus, router] as [AVAudioNode] { engine.attach(n) }
+        for (i, d) in decks.enumerated() { d.attach(to: engine, program: programBus, cue: cueBus, bus: AVAudioNodeBus(i)) }
         // Wire each deck with a default format so the engine can start before any track is loaded.
         let fmt = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)!
         for d in decks { d.connect(in: engine, format: fmt) }
+        wireOutputs()
         applyGains()
+        applyCue()
+        NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+            guard let self, !self.reconfiguring else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.configurationChanged() }
+        }
+    }
+
+    /// After `setOutputs`, the device switch is still settling: the engine announces the change a
+    /// moment later and re-wires its last stage for the device's stereo pair. Until then, wire again.
+    private var settlingUntil = Date.distantPast
+
+    /// The output hardware changed. Our own device switch, settling: wire the outputs again. Anything
+    /// else (headphones unplugged, a device added): set up the chosen devices from scratch.
+    private func configurationChanged() {
+        guard !reconfiguring else { return }
+        if Date() < settlingUntil {
+            reconfiguring = true
+            defer { reconfiguring = false }
+            for i in decks.indices where decks[i].isPlaying { pause(deck: i) }
+            engine.stop()
+            wireOutputs()
+            try? start()
+            applyCue()
+            onChange?()
+        } else {
+            setOutputs(speakers: wantSpeakers, headphones: wantHeadphones)
+        }
     }
 
     public func start() throws {
         engine.prepare()
         try engine.start()
+        applyRouting()
+    }
+
+    /// Connects the buses and the router for the current output device's channel count.
+    private func wireOutputs() {
+        let hw = hardwareFormat
+        let sr = hw.sampleRate > 0 ? hw.sampleRate : 48_000
+        let n = max(1, Int(hw.channelCount))
+        let stereo = AVAudioFormat(standardFormatWithSampleRate: sr, channels: 2)!
+        let out = n > 2 ? AVAudioFormat(standardFormatWithSampleRate: sr, channelLayout: AVAudioChannelLayout(layoutTag: kAudioChannelLayoutTag_DiscreteInOrder | UInt32(n))!)
+                        : AVAudioFormat(standardFormatWithSampleRate: sr, channels: AVAudioChannelCount(n))!
+        engine.connect(programBus, to: [AVAudioConnectionPoint(node: router, bus: 0), AVAudioConnectionPoint(node: headProgram, bus: 0)],
+                       fromBus: 0, format: stereo)
+        engine.connect(headProgram, to: headBus, fromBus: 0, toBus: 0, format: stereo)
+        engine.connect(cueBus, to: headBus, fromBus: 0, toBus: 1, format: stereo)
+        engine.connect(headBus, to: router, fromBus: 0, toBus: 1, format: stereo)
+        engine.connect(router, to: engine.mainMixerNode, format: out)
+        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: out)
+    }
+
+    /// The output device's own format, every channel. (`outputNode.outputFormat` reports only the
+    /// device's stereo pair, so a four-channel aggregate would look like two.)
+    public var hardwareFormat: AVAudioFormat { engine.outputNode.auAudioUnit.outputBusses[0].format }
+
+    /// Sets the router's gains: speaker mix to channels 1–2, headphone mix to the headphones' pair.
+    /// Needs the engine running (the unit initialised).
+    private func applyRouting() {
+        let au = router.audioUnit
+        func set(_ scope: AudioUnitScope, _ element: UInt32, _ v: Float, _ id: AudioUnitParameterID = kMatrixMixerParam_Volume) {
+            AudioUnitSetParameter(au, id, scope, element, v, 0)
+        }
+        let n = UInt32(max(1, hardwareFormat.channelCount))
+        set(kAudioUnitScope_Global, 0xFFFF_FFFF, 1)
+        for b: UInt32 in 0..<2 { set(kAudioUnitScope_Input, b, 1, kMatrixMixerParam_Enable) }
+        for c: UInt32 in 0..<4 { set(kAudioUnitScope_Input, c, 1) }
+        for c in 0..<n { set(kAudioUnitScope_Output, c, 1) }
+        for i: UInt32 in 0..<4 { for o in 0..<n { set(kAudioUnitScope_Global, (i << 16) | o, 0) } }
+        // Speaker mix: left and right to channels 1 and 2 (both to channel 1 on a mono device).
+        set(kAudioUnitScope_Global, (0 << 16) | 0, 1)
+        set(kAudioUnitScope_Global, (1 << 16) | min(1, n - 1), 1)
+        if let h = headChannel.map(UInt32.init), h + 1 < n {
+            set(kAudioUnitScope_Global, (2 << 16) | h, 1)
+            set(kAudioUnitScope_Global, (3 << 16) | (h + 1), 1)
+        }
+    }
+
+    /// Chooses the output devices by UID: the speakers (nil = the system default) and the headphones
+    /// (nil = none). Playing decks pause, because the engine restarts on the new device.
+    ///
+    /// Headphones on another device join it to the speakers in a private aggregate device. On the
+    /// same device they need four or more outputs, and use channels 3–4.
+    @discardableResult
+    public func setOutputs(speakers sUID: String?, headphones hUID: String?) -> Bool {
+        reconfiguring = true
+        defer { reconfiguring = false }
+        wantSpeakers = sUID; wantHeadphones = hUID
+        let devs = AudioOutputs.devices()
+        let spk = sUID.flatMap { u in devs.first { $0.uid == u } }
+            ?? AudioOutputs.defaultOutput().flatMap { id in devs.first { $0.id == id } }
+        let hp = hUID.flatMap { u in devs.first { $0.uid == u } }
+        for i in decks.indices where decks[i].isPlaying { pause(deck: i) }
+        previewing.removeAll()
+        engine.stop()
+        if let a = aggregate { AudioOutputs.destroyAggregate(a); aggregate = nil }
+        var target = spk?.id
+        headChannel = nil
+        if let spk, let hp {
+            if hp.uid == spk.uid {
+                if spk.channels >= 4 { headChannel = 2 }
+            } else if let a = AudioOutputs.makeAggregate(speakers: spk, headphones: hp) {
+                aggregate = a; target = a; headChannel = spk.channels
+            }
+        }
+        if let id = target { try? engine.outputNode.auAudioUnit.setDeviceID(id) }
+        speakers = spk
+        headphones = headChannel == nil ? nil : hp
+        wireOutputs()
+        var ok = true
+        do { try start() } catch { ok = false }
+        applyCue()
+        settlingUntil = Date().addingTimeInterval(2)
+        onChange?()
+        return ok && (hUID == nil || headphones != nil)
+    }
+
+    /// Sends a deck to the headphones, or takes it off.
+    public func setCue(deck i: Int, _ on: Bool) {
+        cue[i] = on
+        applyCue()
+        onChange?()
+    }
+
+    /// Headphone mix: 0 = only the cued decks, 1 = only the speaker mix, both full at the centre.
+    public func setCueMix(_ v: Double) {
+        cueMix = min(max(v, 0), 1)
+        applyCue()
+        onChange?()
+    }
+
+    private func applyCue() {
+        for (i, d) in decks.enumerated() { d.cueSend.outputVolume = cue[i] ? 1 : 0 }
+        cueBus.outputVolume = Float(min(1, 2 * (1 - cueMix)))
+        headProgram.outputVolume = Float(min(1, 2 * cueMix))
     }
 
     // MARK: Tracks
@@ -143,6 +321,43 @@ public final class MixEngine {
             d.play(fromBeat: from, atHostTime: nil)
         }
         d.pausedBeat = nil
+        checkMixerSwap()
+        onChange?()
+    }
+
+    /// Starts every loaded deck that isn't playing, each from where it is paused (or its cue point).
+    ///
+    /// With both decks stopped they start at the same instant, a moment from now, with the
+    /// incoming deck nudged to a whole-beat offset so their beats line up, and synced to the
+    /// outgoing deck's tempo when SYNC is on. If one deck already plays, the other joins it on
+    /// its next beat, as PLAY does.
+    public func playAll() {
+        previewing.removeAll()
+        let out = decks[outgoing], inc = decks[incoming]
+        guard !out.isPlaying, !inc.isPlaying, let og = out.grid, let ig = inc.grid else {
+            for i in decks.indices where decks[i].grid != nil && !decks[i].isPlaying { play(deck: i) }
+            return
+        }
+        let outFrom = out.pausedBeat ?? out.cueBeat
+        let inFrom = inc.pausedBeat ?? inc.cueBeat
+        // Same fraction of a beat as the outgoing deck, so the two beat grids line up.
+        let frac = outFrom - floor(outFrom)
+        let inStart = max(0, (inFrom - frac).rounded() + frac)
+        out.timePitch.rate = 1
+        if syncOn {
+            baseRatio = og.bpm / ig.bpm
+            phaseIntegral = 0
+            inc.timePitch.rate = Float(baseRatio)
+        } else {
+            inc.timePitch.rate = 1
+        }
+        // Far enough ahead that both players are scheduled before the first one sounds.
+        let host = mach_absolute_time() + AVAudioTime.hostTime(forSeconds: 0.08)
+        out.play(fromBeat: outFrom, atHostTime: host)
+        inc.play(fromBeat: inStart, atHostTime: host)
+        out.pausedBeat = nil
+        inc.pausedBeat = nil
+        incomingStartBeat = outFrom
         checkMixerSwap()
         onChange?()
     }

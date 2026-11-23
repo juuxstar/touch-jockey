@@ -14,6 +14,12 @@ enum SettingsKey {
     static let keepAwake = "keepAwakeWhilePlaying"
     /// The learning ladder, as `SkillLadder.dictionary` (`{"blend": "handoff", …}`).
     static let skillLadder = "skillLadder"
+    /// Output devices, by Core Audio UID: the speakers (absent = the system default) and the
+    /// headphones (absent = none).
+    static let speakersDevice = "speakersDevice"
+    static let headphonesDevice = "headphonesDevice"
+    /// The headphone cue mix, 0 (cued decks only) … 1 (speaker mix only).
+    static let cueMix = "cueMix"
 
     static func bool(_ key: String, default value: Bool) -> Bool {
         UserDefaults.standard.object(forKey: key) as? Bool ?? value
@@ -23,7 +29,7 @@ enum SettingsKey {
 // MARK: - Sections
 
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case connect, skills, display, library, playback, app
+    case connect, skills, display, library, playback, audio, app
     var id: String { rawValue }
 
     var title: String {
@@ -33,6 +39,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .display: return "Display"
         case .library: return "Library"
         case .playback: return "Playback"
+        case .audio: return "Audio"
         case .app: return "About"
         }
     }
@@ -44,6 +51,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .display: return "textformat.size"
         case .library: return "music.note.list"
         case .playback: return "play.circle"
+        case .audio: return "headphones"
         case .app: return "info.circle"
         }
     }
@@ -55,6 +63,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .display: return TJ.sky
         case .library: return TJ.lav
         case .playback: return TJ.a
+        case .audio: return TJ.b
         case .app: return TJ.gold
         }
     }
@@ -148,6 +157,7 @@ struct SettingsView: View {
         case .display: display
         case .library: library
         case .playback: playback
+        case .audio: audio
         case .app: app
         }
     }
@@ -178,6 +188,13 @@ struct SettingsView: View {
             **Playback** settings change how the decks behave.
 
             **SYNC** locks the incoming track's tempo and beat to the outgoing one, so the two play in time.
+            """
+        case .audio: return """
+            **Speakers** play the mix: what the crowd hears.
+
+            **Headphones** are for **cueing**: hearing the next track before anyone else does. Choose a headphone output and each deck gets a **headphones button**. Press it to hear that deck in your headphones, even while it's silent in the speakers. The **cue mix** slider beside the mixer sets what the headphones play: only the decks you've cued, only the speaker mix, or both.
+
+            The headphones need their **own output**: a separate device (USB or Bluetooth headphones, or a second sound card), or channels 3–4 of a DJ controller or an audio interface. They can't share the speakers' output.
             """
         case .app: return "**Touch Jockey**: a DJ app for beginners. The Mac plays the music; phones and tablets are the controllers."
         }
@@ -379,6 +396,59 @@ struct SettingsView: View {
                     .tip("**Keep Mac awake while playing**: the screen won't dim or sleep while a deck is playing.\n\nOnce everything stops, your normal energy settings apply again.")
             }
         }
+    }
+
+    @State private var outputDevices: [AudioOutputs.Device] = []
+
+    private var audio: some View {
+        let spkUID = UserDefaults.standard.string(forKey: SettingsKey.speakersDevice)
+        let hpUID = UserDefaults.standard.string(forKey: SettingsKey.headphonesDevice)
+        let speakers = m.speakers
+        return VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Speakers").font(.tj(13, weight: .semibold))
+                deviceRow("System default" + (spkUID == nil ? speakers.map { " (\($0.name))" } ?? "" : ""), icon: "hifispeaker",
+                          selected: spkUID == nil) { m.setOutputs(speakers: nil, headphones: hpUID) }
+                ForEach(outputDevices) { d in
+                    deviceRow(d.name, icon: "hifispeaker", selected: spkUID == d.uid) { m.setOutputs(speakers: d.uid, headphones: hpUID == d.uid ? nil : hpUID) }
+                }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Headphones").font(.tj(13, weight: .semibold))
+                deviceRow("None", icon: "xmark", selected: hpUID == nil) { m.setOutputs(speakers: spkUID, headphones: nil) }
+                ForEach(outputDevices.filter { $0.uid != speakers?.uid || $0.channels >= 4 }) { d in
+                    deviceRow(d.uid == speakers?.uid ? "\(d.name), channels 3–4" : d.name, icon: "headphones",
+                              selected: hpUID == d.uid) { m.setOutputs(speakers: spkUID, headphones: d.uid) }
+                }
+                if hpUID != nil && m.headphones == nil {
+                    Text(AudioOutputs.device(uid: hpUID!) == nil ? "Those headphones aren't connected." : "Those headphones couldn't be used with these speakers.")
+                        .font(.tj(12, weight: .semibold)).foregroundColor(TJ.rose)
+                }
+            }
+            Text("Changing an output pauses the decks.").font(.tj(12)).foregroundColor(TJ.mute)
+        }
+        .onAppear { outputDevices = AudioOutputs.devices() }
+        .onChange(of: m.headphones) { _ in outputDevices = AudioOutputs.devices() }
+        .onChange(of: m.speakers) { _ in outputDevices = AudioOutputs.devices() }
+    }
+
+    /// One choice in a device list: the whole row is the button, outlined when chosen.
+    private func deviceRow(_ name: String, icon: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: selected ? "checkmark.circle.fill" : icon)
+                    .foregroundColor(selected ? TJ.b : TJ.mute).frame(width: 18)
+                Text(name).font(.tj(13, weight: selected ? .semibold : .regular)).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10).frame(height: 34 * s)
+            .background(RoundedRectangle(cornerRadius: 6).fill(selected ? TJ.b.opacity(0.14) : Color.white.opacity(0.03)))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(selected ? TJ.b : Color.white.opacity(0.12), lineWidth: selected ? 2 : 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointingHandCursor()
+        .frame(maxWidth: 420 * s)
     }
 
     private var app: some View {

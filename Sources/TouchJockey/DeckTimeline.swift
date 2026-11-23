@@ -60,12 +60,16 @@ struct DeckTimeline: View {
         let laneH = (size.height - laneGap) / 2
 
         let outNow = out.currentBeat() ?? out.parkedBeat
-        // Incoming beat at this moment, on the outgoing deck's timeline.
+        // The outgoing beat that lines up with the incoming track's beat 0 (so incoming beat = outNow - offset).
+        // A playing deck's real position wins; a scheduled start counts from the beat it starts at,
+        // which isn't bar 1 when it resumes mid-track (PLAY, Play all).
         let startBeat: Double = {
-            if let s = mix.incomingStartBeat { return s }
             if inc.isPlaying, let ib = inc.currentBeat() { return outNow - ib }
+            if let s = mix.incomingStartBeat { return s - (inc.isPlaying ? inc.startedFromBeat : 0) }
             return (floor(outNow / 32) + 1) * 32          // preview: next phrase
         }()
+        // Where the incoming track comes in: its scheduled start, or the preview phrase.
+        let entryBeat = mix.incomingStartBeat ?? startBeat
         // A stopped incoming deck that has been jogged shows where it sits, at the playhead.
         let incParked = inc.isParkedAway && mix.incomingStartBeat == nil
         let incNow = incParked ? inc.parkedBeat : outNow - startBeat
@@ -77,7 +81,7 @@ struct DeckTimeline: View {
             let x = playX + CGFloat(Double(b) - outNow) * ppb
             let phrase = b % 32 == 0, bar = b % 4 == 0
             let w: CGFloat = phrase ? 2 : 1
-            let alpha = phrase ? 0.32 : bar ? 0.14 : 0.05
+            let alpha = phrase ? 0.45 : bar ? 0.24 : 0.08
             ctx.fill(Path(CGRect(x: x - w / 2, y: 0, width: w, height: size.height)), with: .color(.white.opacity(alpha)))
             if phrase {
                 ctx.draw(Text("BAR \(b / 4 + 1)").font(.tj(9.5, weight: .bold)).foregroundColor(.white.opacity(0.55)),
@@ -97,7 +101,7 @@ struct DeckTimeline: View {
 
         // Where the incoming track starts.
         if inc.grid != nil, !incParked {
-            let x = playX + CGFloat(startBeat - outNow) * ppb
+            let x = playX + CGFloat(entryBeat - outNow) * ppb
             if x > 0, x < size.width {
                 var line = Path()
                 line.move(to: CGPoint(x: x, y: incTop))

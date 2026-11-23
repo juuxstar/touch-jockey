@@ -11,6 +11,31 @@ player → `AVAudioUnitTimePitch` (tempo change with key lock) → three paralle
 filters (24 dB/oct: low < 200 Hz, mid, high > 2.5 kHz) → per-band mixer gains → deck
 output mixer → main mixer.
 
+## Outputs: speakers and headphones (`AudioOutputs.swift`, `MixEngine` outputs)
+
+```
+deck output ──► programBus ──┬──────────────────────────► router in 1–2 ──► speaker channels
+                             └─► headProgram ─┐
+deck cueSend ─► cueBus ──────────────────────┴─► headBus ─► router in 3–4 ──► headphone channels
+```
+
+- The cue send taps each deck after the time-pitch, **before** the bands, lanes and faders, so a
+  cued deck is heard in the headphones even while silent in the speakers. `cueMix` 0…1 balances
+  `cueBus` (cued decks) against `headProgram` (the speaker mix), both full at the centre.
+- **Never split the time-pitch's output to two paths:** it renders twice per cycle and the track
+  plays at double speed. The deck splits from a unity mixer (`split`) after it instead. Offline
+  rendering doesn't show this; only a live engine does.
+- The router is Apple's matrix mixer (`kAudioUnitSubType_MatrixMixer`): 2 stereo inputs, one
+  output with every device channel; crosspoints set in `applyRouting` (needs the engine running).
+- Headphones on another device: a private aggregate device (speakers keep the clock, headphones
+  drift-corrected). Same device with 4+ outputs: channels 3–4.
+- **Read the channel count from `outputNode.auAudioUnit.outputBusses[0].format`**
+  (`hardwareFormat`). `outputNode.outputFormat(forBus:)` reports only the device's stereo pair.
+- A device switch fires `AVAudioEngineConfigurationChange` a moment later, and the engine
+  re-wires its last stage to stereo. Within 2 s of `setOutputs` the engine wires again
+  (`configurationChanged`); later changes (unplugging) set up the chosen devices from scratch.
+- `scripts/outputs_test.sh` checks the levels per channel on a real second output device.
+
 ## Skill ladder (`SkillLadder.swift`)
 
 - One level per technique: blend (`handoff`, `mixer`), timing (`snap`, `free`),
@@ -65,7 +90,8 @@ deck volume =   1               fader gain × crossfader    (each deck's output 
      heard that much after the player renders it (`Deck.heardBeat()`).
   3. Audio is rendered ahead of being heard, so gain changes are made that much early.
   The gains are set on a timing thread, then the lane state follows on main.
-  `scripts/flick_timing.sh` measures it to the sample: flicks land within about ±10 ms.
+  `scripts/flick_timing.sh` measures it to the sample: flicks land within about ±20 ms (mean about
+  −9 ms since the output router was added).
 - Transport follows CDJ conventions: CUE, PLAY/PAUSE, SYNC/MASTER. CUE snaps to the
   nearest beat.
 

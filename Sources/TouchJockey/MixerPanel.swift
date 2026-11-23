@@ -4,7 +4,8 @@ import TJCore
 /// The blend panel. What it shows depends on the user's **blend** level (`SkillLadder`):
 ///
 /// - **Handoff** (beginner): the phone's three handoff lanes, each with a slider for mouse
-///   use and a Flick button, plus Back to and Stop all.
+///   use and a Flick button, plus Back to and Stop all. While a phone is connected the lanes
+///   are moved there, so here they only show positions: no dragging, no Flick buttons.
 /// - **Mixer**: a two-channel DJ mixer, a channel strip per deck (HIGH, MID, LOW EQ and a
 ///   volume fader) and a crossfader along the bottom.
 struct MixerPanel: View {
@@ -47,10 +48,14 @@ struct MixerPanel: View {
                         .font(.tj(11, weight: .semibold)).foregroundColor(TJ.mute).lineLimit(1)
                 }
                 Spacer()
+                if m.headphones != nil { cueMixControl }
                 if !mixerMode {
                     Button("Back to \(m.decks[m.outgoing].name)") { m.mix.backToStable() }.tjButton(TJ.deck(m.outgoing))
                         .tip("**Back to \(m.decks[m.outgoing].name)**: move every handoff lane back to the outgoing deck, undoing the handoff so far.\n\nSame as a **two-finger tap** on the phone.")
                 }
+                Button { m.playAll() } label: { Label("Play all", systemImage: "play.fill") }
+                    .tjButton(TJ.mint).disabled(!m.canPlayAll)
+                    .tip("**Play all**: start both decks together, each from where it's parked, with their beats lined up. Shortcut: **Space**.\n\nIf one deck is already playing, the other joins on its next beat.")
                 Button("Stop all") { m.stopAll() }.tjButton(TJ.rose)
                     .tip(mixerMode
                          ? "**Stop all**: stop both decks and send them back to bar 1.\n\nThe mixer's EQ and faders stay where they are."
@@ -154,8 +159,17 @@ struct MixerPanel: View {
     // MARK: Handoff lanes
 
     /// The phone's lanes, with a slider each for mouse use and a Flick button.
+    /// With a phone connected the lanes are moved there, so here they only show where each band is.
+    private var phoneDrives: Bool { !m.devices.isEmpty }
+
     private var handoffLanes: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if phoneDrives {
+                HStack(spacing: 6) {
+                    Image(systemName: "iphone").foregroundColor(TJ.mute)
+                    Text("Moved from the phone").font(.tj(11, weight: .semibold)).foregroundColor(TJ.mute)
+                }
+            }
             ForEach(Self.bands, id: \.self) { band in
                 let v = m.lanes[band] ?? 0
                 HStack(spacing: 8) {
@@ -166,15 +180,32 @@ struct MixerPanel: View {
                     MixerSlider(value: v, color: TJ.band(band), axis: .horizontal, fill: .none, detent: 0.5,
                                 resetTo: m.mix.laneEnd(forDeck: m.outgoing), readout: laneReadout(v),
                                 tint: MixerSlider.blend(v)) { m.setLane(band, $0) }
+                        .allowsHitTesting(!phoneDrives)
                         .sliderTip("**\(band.rawValue.uppercased()) lane**: left is deck **A**, right is deck **B**. Drag to hand this band over.\n\n**Double-click** to send it back to the outgoing deck.")
                     Text("B").font(.tj(11, weight: .heavy)).foregroundColor(TJ.b)
-                    Button("Flick") { m.flick(band) }.tjButton(TJ.band(band))
-                        .tip(m.ladder.timing == .free
-                             ? "**Flick \(band.rawValue.uppercased())**: swap this band to the other deck **right now**.\n\nYour timing decides where it lands, so press it on the downbeat."
-                             : "**Flick \(band.rawValue.uppercased())**: swap this band to the other deck exactly on the **next bar**, like flicking the lane on the phone.\n\nUse it on **LOW** for a clean bass swap on the downbeat.")
+                    if !phoneDrives {
+                        Button("Flick") { m.flick(band) }.tjButton(TJ.band(band))
+                            .tip(m.ladder.timing == .free
+                                 ? "**Flick \(band.rawValue.uppercased())**: swap this band to the other deck **right now**.\n\nYour timing decides where it lands, so press it on the downbeat."
+                                 : "**Flick \(band.rawValue.uppercased())**: swap this band to the other deck exactly on the **next bar**, like flicking the lane on the phone.\n\nUse it on **LOW** for a clean bass swap on the downbeat.")
+                    }
                 }
             }
         }
+    }
+
+    /// What the headphones play: only the cued decks (left), only the speaker mix (right), or both.
+    private var cueMixControl: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "headphones").foregroundColor(TJ.mute)
+            Text("CUE").font(.tj(10, weight: .heavy)).tracking(1).foregroundColor(TJ.mute)
+            MixerSlider(value: m.cueMix, color: TJ.mute, axis: .horizontal, fill: .none, detent: 0.5, resetTo: 0.5,
+                        readout: m.cueMix <= 0.005 ? "cue only" : m.cueMix >= 0.995 ? "mix only" : nil) { m.setCueMix($0) }
+                .frame(width: 150 * UIScale.current)
+                .sliderTip("**Cue mix**: what your headphones play.\n\n**Left**: only the decks you've sent to the headphones. **Right**: only what the speakers play. **Centre**: both at full.\n\n**Double-click** to centre it.")
+            Text("MIX").font(.tj(10, weight: .heavy)).tracking(1).foregroundColor(TJ.mute)
+        }
+        .padding(.trailing, 6)
     }
 
     /// "all A", "all B", or how much of the band is on B.

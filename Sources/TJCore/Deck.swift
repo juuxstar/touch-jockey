@@ -10,6 +10,9 @@ public enum Band: String, CaseIterable, Codable {
 /// The bands are split in parallel with 24 dB/octave filters at 200 Hz and 2.5 kHz,
 /// and each band has its own volume: the handoff lane's gain times the mixer's EQ gain.
 /// The deck output's volume is the channel fader times the crossfader.
+///
+/// A **cue send** taps the track straight after the time-pitch, before the bands, lanes and
+/// faders, so a deck sent to the headphones is heard there even while it's silent in the mix.
 public final class Deck {
     public let name: String
     let player = AVAudioPlayerNode()
@@ -17,6 +20,16 @@ public final class Deck {
     let bandFilters: [Band: AVAudioUnitEQ]
     let bandGains: [Band: AVAudioMixerNode]
     let output = AVAudioMixerNode()
+    /// The headphone cue send: 1 while the deck is cued, else 0.
+    let cueSend = AVAudioMixerNode()
+    /// A unity mixer right after the time-pitch, where the track splits to the bands and the cue send.
+    /// (Splitting the time-pitch's own output to two paths makes it render twice per cycle, so the
+    /// track would play at double speed.)
+    let split = AVAudioMixerNode()
+    /// Where the deck plays into: the speaker mix and the headphone cue bus (set by `MixEngine`).
+    private weak var programBus: AVAudioMixerNode?
+    private weak var cueBus: AVAudioMixerNode?
+    private var busIndex: AVAudioNodeBus = 0
 
     public private(set) var file: AVAudioFile?
     public private(set) var title: String = ""
@@ -28,6 +41,8 @@ public final class Deck {
     /// File frame where the currently scheduled segment starts.
     var segmentStartFrame: AVAudioFramePosition = 0
     public private(set) var isPlaying = false
+    /// The beat the deck last started playing from (it may not be heard yet if the start is scheduled).
+    public private(set) var startedFromBeat: Double = 0
     /// Where a paused deck resumes from (nil = from bar 1).
     public internal(set) var pausedBeat: Double?
     /// The cue point, as a beat index (0 = bar 1). CUE returns here.
@@ -56,9 +71,11 @@ public final class Deck {
         ]
         bandGains = Dictionary(uniqueKeysWithValues: Band.allCases.map { ($0, AVAudioMixerNode()) })
         timePitch.pitch = 0   // key lock: tempo changes never change pitch
+        cueSend.outputVolume = 0
     }
 
-    func attach(to engine: AVAudioEngine) {
+    func attach(to engine: AVAudioEngine, program: AVAudioMixerNode, cue: AVAudioMixerNode, bus: AVAudioNodeBus) {
+        programBus = program; cueBus = cue; busIndex = bus
         engine.attach(player)
         engine.attach(timePitch)
         for b in Band.allCases {
@@ -66,18 +83,23 @@ public final class Deck {
             engine.attach(bandGains[b]!)
         }
         engine.attach(output)
+        engine.attach(cueSend)
+        engine.attach(split)
     }
 
     /// (Re)wires the chain for a file's format.
     func connect(in engine: AVAudioEngine, format: AVAudioFormat) {
         engine.connect(player, to: timePitch, format: format)
+        engine.connect(timePitch, to: split, format: format)
         let points = Band.allCases.map { AVAudioConnectionPoint(node: bandFilters[$0]!, bus: 0) }
-        engine.connect(timePitch, to: points, fromBus: 0, format: format)
+            + [AVAudioConnectionPoint(node: cueSend, bus: 0)]
+        engine.connect(split, to: points, fromBus: 0, format: format)
         for (i, b) in Band.allCases.enumerated() {
             engine.connect(bandFilters[b]!, to: bandGains[b]!, format: format)
             engine.connect(bandGains[b]!, to: output, fromBus: 0, toBus: AVAudioNodeBus(i), format: format)
         }
-        engine.connect(output, to: engine.mainMixerNode, format: nil)
+        if let programBus { engine.connect(output, to: programBus, fromBus: 0, toBus: busIndex, format: format) }
+        if let cueBus { engine.connect(cueSend, to: cueBus, fromBus: 0, toBus: busIndex, format: format) }
     }
 
     func load(url: URL, analysis: TrackAnalysis, in engine: AVAudioEngine) throws {
@@ -126,6 +148,7 @@ public final class Deck {
         let start = AVAudioFramePosition(max(0, g.seconds(atBeat: beat)) * sr)
         guard start < f.length else { return }
         segmentStartFrame = start
+        startedFromBeat = beat
         player.scheduleSegment(f, startingFrame: start, frameCount: AVAudioFrameCount(f.length - start), at: nil)
         if let host { player.play(at: AVAudioTime(hostTime: host)) } else { player.play() }
         isPlaying = true
