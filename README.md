@@ -128,6 +128,7 @@ up or down at any time.
 | Blend | `handoff`: the phone's lanes do the blend, the mixer is held neutral. `mixer`: EQ, faders and crossfader; the lanes are bypassed. |
 | Bass-swap timing | `snap`: a Flick lands on the next bar. `free`: a Flick lands now, with a 20 ms ramp. |
 | Tempo | `sync`: SYNC matches tempo and beat. (Beat-matching by ear comes later.) |
+| Reading the waveform | `single`: each deck's waveform in its own colour, the bright core the bass. `spectrum`: coloured by frequency (red bass, green mids, blue highs), as in club DJ software. |
 
 A new level is one `SkillLevel` case plus its text in `Settings.swift` and whatever
 behaviour it changes.
