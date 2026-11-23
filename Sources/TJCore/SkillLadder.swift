@@ -19,6 +19,8 @@ public enum Technique: String, CaseIterable, Codable {
     case timing
     /// How the incoming track's tempo is matched to the master's.
     case tempo
+    /// How much the waveform shows: its loudness, or which frequencies are playing too.
+    case waveform
 
     /// This technique's levels, lowest (most help) first.
     public var levels: [SkillLevel] { SkillLevel.allCases.filter { $0.technique == self } }
@@ -38,12 +40,17 @@ public enum SkillLevel: String, CaseIterable, Codable {
     case free
     /// Tempo: SYNC matches tempo and beat. Beat-matching by ear comes later.
     case sync
+    /// Waveform: one colour per deck; height is loudness, the bright core the bass.
+    case single
+    /// Waveform: coloured by frequency, as in club DJ software (bass red, mids green, highs blue).
+    case spectrum
 
     public var technique: Technique {
         switch self {
         case .handoff, .mixer: return .blend
         case .snap, .free: return .timing
         case .sync: return .tempo
+        case .single, .spectrum: return .waveform
         }
     }
 
@@ -69,7 +76,7 @@ public struct SkillLadder: Equatable {
         }
     }
 
-    /// `{"blend": "handoff", "timing": "snap", "tempo": "sync"}`, for UserDefaults and the state broadcast.
+    /// `{"blend": "handoff", "timing": "snap", "tempo": "sync", "waveform": "single"}`, for UserDefaults and the state broadcast.
     public var dictionary: [String: String] {
         Dictionary(uniqueKeysWithValues: levels.map { ($0.key.rawValue, $0.value.rawValue) })
     }
@@ -93,4 +100,5 @@ public struct SkillLadder: Equatable {
     public var blend: SkillLevel { self[.blend] }
     public var timing: SkillLevel { self[.timing] }
     public var tempo: SkillLevel { self[.tempo] }
+    public var waveform: SkillLevel { self[.waveform] }
 }

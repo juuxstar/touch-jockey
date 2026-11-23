@@ -127,22 +127,32 @@ struct DeckPosition: View {
         let mid = size.height / 2, half = size.height / 2 - 3
         let step: CGFloat = 2
         let playX = CGFloat(n.seconds / n.duration) * size.width
+        let spectrum = mix.ladder.waveform == .spectrum && !wf.mid.isEmpty
         var fullDone = Path(), lowDone = Path(), fullAhead = Path(), lowAhead = Path()
+        var paintDone = SpectrumPainter(), paintAhead = SpectrumPainter()
         var x: CGFloat = 0
         while x < size.width {
             let s0 = Double(x / size.width) * n.duration, s1 = Double((x + step) / size.width) * n.duration
-            let lv = wf.level(from: s0, to: s1)
+            let lv = wf.bands(from: s0, to: s1)
             let hf = CGFloat(lv.full) * half, hl = CGFloat(lv.low) * half
             let rf = CGRect(x: x, y: mid - hf, width: step - 0.5, height: hf * 2)
             let rl = CGRect(x: x, y: mid - hl, width: step - 0.5, height: hl * 2)
-            if x < playX { fullDone.addRect(rf); lowDone.addRect(rl) } else { fullAhead.addRect(rf); lowAhead.addRect(rl) }
+            if spectrum {
+                if x < playX { paintDone.add(rf, low: lv.low, mid: lv.mid, high: lv.high) }
+                else { paintAhead.add(rf, low: lv.low, mid: lv.mid, high: lv.high) }
+            } else if x < playX { fullDone.addRect(rf); lowDone.addRect(rl) } else { fullAhead.addRect(rf); lowAhead.addRect(rl) }
             x += step
         }
         // Played part dimmed, the rest bright.
-        ctx.fill(fullDone, with: .color(color.opacity(0.15)))
-        ctx.fill(lowDone, with: .color(color.opacity(0.35)))
-        ctx.fill(fullAhead, with: .color(color.opacity(0.35)))
-        ctx.fill(lowAhead, with: .color(color.opacity(0.9)))
+        if spectrum {
+            paintDone.fill(ctx, opacity: 0.3)
+            paintAhead.fill(ctx, opacity: 1)
+        } else {
+            ctx.fill(fullDone, with: .color(color.opacity(0.15)))
+            ctx.fill(lowDone, with: .color(color.opacity(0.35)))
+            ctx.fill(fullAhead, with: .color(color.opacity(0.35)))
+            ctx.fill(lowAhead, with: .color(color.opacity(0.9)))
+        }
 
         // A faint line at every phrase (32 beats).
         var b = 0.0

@@ -185,7 +185,7 @@ if let a = A.currentBeat(), let b = B.currentBeat() {
 } else { check("positions readable", false) }
 check("B's tempo follows A", abs((B.playingBPM ?? 0) - (A.playingBPM ?? 0)) < 0.5)
 mix.stopAll()
-check("ladder dictionary", mix.ladder.dictionary == ["blend": "mixer", "timing": "snap", "tempo": "sync"])
+check("ladder dictionary", mix.ladder.dictionary == ["blend": "mixer", "timing": "snap", "tempo": "sync", "waveform": "single"])
 check("ladder round-trips", SkillLadder(dictionary: mix.ladder.dictionary) == mix.ladder)
 var l = SkillLadder(); l.step(.blend, by: 5); l.step(.timing, by: -1)
 check("step stays on the ladder", l.blend == .mixer && l.timing == .snap)

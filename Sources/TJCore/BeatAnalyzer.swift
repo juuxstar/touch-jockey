@@ -53,7 +53,7 @@ public enum BeatAnalyzer {
             vDSP_vadd(mono, 1, channels[c], 1, &mono, 1, vDSP_Length(n))
         }
 
-        let (onset, lowEnergy, fullEnergy, envRate) = onsetEnvelope(mono, sampleRate: sampleRate)
+        let (onset, lowEnergy, fullEnergy, envRate, midEnergy, highEnergy) = onsetEnvelope(mono, sampleRate: sampleRate)
         let (bpm, phase, confidence) = combSearch(onset, envRate: envRate, minBPM: minBPM, maxBPM: maxBPM)
 
         // First downbeat: the first beat at or after the point where the music starts.
@@ -65,29 +65,40 @@ public enum BeatAnalyzer {
         while beatFrame + period * 0.5 < musicStart { beatFrame += period }
 
         let grid = BeatGrid(bpm: bpm, firstBeat: beatFrame / envRate, duration: Double(n) / sampleRate, confidence: confidence)
-        return TrackAnalysis(grid: grid, waveform: Waveform(full: fullEnergy, low: lowEnergy, rate: envRate),
+        return TrackAnalysis(grid: grid, waveform: Waveform(full: fullEnergy, low: lowEnergy, mid: midEnergy, high: highEnergy, rate: envRate),
                              key: MusicalKey.detect(mono, sampleRate: sampleRate))
     }
 
     /// Positive changes in log energy, weighted towards the kick drum, at about 200 frames a second.
-    static func onsetEnvelope(_ x: [Float], sampleRate: Double) -> (onset: [Float], low: [Float], full: [Float], rate: Double) {
+    /// Also returns mid (150 Hz–2.5 kHz) and high (above 2.5 kHz) energies, for the waveform's colours.
+    static func onsetEnvelope(_ x: [Float], sampleRate: Double)
+        -> (onset: [Float], low: [Float], full: [Float], rate: Double, mid: [Float], high: [Float]) {
         let hop = max(1, Int(sampleRate / 200))
         let frames = x.count / hop
         let alpha = Float(1 - exp(-2 * Double.pi * 150 / sampleRate))   // one-pole low-pass at 150 Hz
-        var lp: Float = 0
+        let alphaHi = Float(1 - exp(-2 * Double.pi * 2500 / sampleRate)) // and at 2.5 kHz
+        var lp: Float = 0, lp2: Float = 0
         var low = [Float](repeating: 0, count: frames)
         var full = [Float](repeating: 0, count: frames)
+        var mid = [Float](repeating: 0, count: frames)
+        var high = [Float](repeating: 0, count: frames)
         for f in 0..<frames {
-            var el: Float = 0, ef: Float = 0
+            var el: Float = 0, ef: Float = 0, em: Float = 0, eh: Float = 0
             let base = f * hop
             for i in base..<(base + hop) {
                 let s = x[i]
                 lp += alpha * (s - lp)
+                lp2 += alphaHi * (s - lp2)
                 el += lp * lp
                 ef += s * s
+                let m = lp2 - lp, h = s - lp2
+                em += m * m
+                eh += h * h
             }
             low[f] = el
             full[f] = ef
+            mid[f] = em
+            high[f] = eh
         }
         var onset = [Float](repeating: 0, count: frames)
         for f in 1..<frames {
@@ -95,7 +106,7 @@ public enum BeatAnalyzer {
             let df = log(full[f] + 1e-6) - log(full[f - 1] + 1e-6)
             onset[f] = max(0, dl) + 0.5 * max(0, df)
         }
-        return (onset, low, full, sampleRate / Double(hop))
+        return (onset, low, full, sampleRate / Double(hop), mid, high)
     }
 
     /// Score = onset strength summed at every predicted beat; best (bpm, phase in frames) wins.
@@ -169,9 +180,13 @@ public struct Waveform {
     public let rate: Double
     public let full: [Float]
     public let low: [Float]
+    /// Mid (150 Hz–2.5 kHz) and high (above 2.5 kHz) levels, for frequency colours.
+    public let mid: [Float]
+    public let high: [Float]
 
     /// Builds from per-frame energies; levels are RMS scaled so the loudest 0.5% reach 1.
-    init(full fullEnergy: [Float], low lowEnergy: [Float], rate: Double) {
+    /// Each band is scaled on its own, so a band's colour shows when it's strong for that band.
+    init(full fullEnergy: [Float], low lowEnergy: [Float], mid midEnergy: [Float], high highEnergy: [Float], rate: Double) {
         func levels(_ e: [Float]) -> [Float] {
             let rms = e.map { sqrt($0) }
             let sorted = rms.sorted()
@@ -181,21 +196,35 @@ public struct Waveform {
         self.rate = rate
         full = levels(fullEnergy)
         low = levels(lowEnergy)
+        mid = levels(midEnergy)
+        high = levels(highEnergy)
     }
 
     /// Builds from levels that are already 0...1 (used by the analysis cache).
-    init(levelsFull: [Float], low: [Float], rate: Double) {
+    init(levelsFull: [Float], low: [Float], mid: [Float], high: [Float], rate: Double) {
         self.rate = rate
         full = levelsFull
         self.low = low
+        self.mid = mid
+        self.high = high
     }
 
     /// Peak levels over a span of seconds (used per drawn column).
     public func level(from a: Double, to b: Double) -> (full: Float, low: Float) {
+        let b = bands(from: a, to: b)
+        return (b.full, b.low)
+    }
+
+    /// Peak level of every band over a span of seconds.
+    public func bands(from a: Double, to b: Double) -> (full: Float, low: Float, mid: Float, high: Float) {
         let i0 = max(0, Int(a * rate)), i1 = min(full.count, max(i0 + 1, Int(b * rate)))
-        guard i0 < i1 else { return (0, 0) }
-        var f: Float = 0, l: Float = 0
-        for i in i0..<i1 { f = max(f, full[i]); l = max(l, low[i]) }
-        return (f, l)
+        guard i0 < i1 else { return (0, 0, 0, 0) }
+        var f: Float = 0, l: Float = 0, m: Float = 0, h: Float = 0
+        let hasBands = mid.count == full.count && high.count == full.count
+        for i in i0..<i1 {
+            f = max(f, full[i]); l = max(l, low[i])
+            if hasBands { m = max(m, mid[i]); h = max(h, high[i]) }
+        }
+        return (f, l, m, h)
     }
 }

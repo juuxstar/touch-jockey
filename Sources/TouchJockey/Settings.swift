@@ -514,6 +514,7 @@ extension Technique {
         case .blend: return "Blending"
         case .timing: return "Bass-swap timing"
         case .tempo: return "Tempo"
+        case .waveform: return "Reading the waveform"
         }
     }
 }
@@ -526,6 +527,8 @@ extension SkillLevel {
         case .snap: return "Snap to the bar"
         case .free: return "Free"
         case .sync: return "SYNC"
+        case .single: return "One colour"
+        case .spectrum: return "Frequency colours"
         }
     }
 
@@ -537,6 +540,8 @@ extension SkillLevel {
         case .snap: return "A Flick waits for the next bar, so a bass swap always lands on the 1."
         case .free: return "A Flick lands the moment you flick: your timing decides."
         case .sync: return "Touch Jockey matches the incoming track's tempo and beat for you."
+        case .single: return "Each deck's waveform in its own colour: height is loudness, the bright core is the bass."
+        case .spectrum: return "Coloured by frequency, like club DJ software: red bass, green mids, blue highs."
         }
     }
 
@@ -571,6 +576,20 @@ extension SkillLevel {
             **SYNC**: the incoming track follows the master's **tempo** and **beat**, so the two never drift apart and you can focus on the blend.
 
             Beat-matching by ear will be the next level.
+            """
+        case .single: return """
+            **One colour**: each deck's waveform in its own colour. **Height** is how loud the music is, and the **bright core** is the bass, so you can see where the kick drops out and comes back.
+
+            **Move up when you can** spot the breakdowns and drops at a glance, and want to see the vocals and hi-hats too.
+            """
+        case .spectrum: return """
+            **Frequency colours**: the waveform is coloured by what's playing, the way rekordbox and Serato show it.
+
+            - **Red**: bass and kick.
+            - **Green**: mids: vocals, chords, synth leads.
+            - **Blue**: highs: hi-hats, cymbals, claps.
+
+            Mixed colours mean several at once: **yellow** is bass with mids, **white** is everything. A blend point jumps out: a stretch with no red is a breakdown, and the red coming back is the drop.
             """
         }
     }

@@ -137,22 +137,32 @@ struct DeckTimeline: View {
         let mid = rect.midY, half = rect.height / 2 - 4
         let step: CGFloat = 2
         let secondsPerPixel = g.secondsPerBeat / Double(ppb)
-        var full = Path(), low = Path()
+        let spectrum = mix.ladder.waveform == .spectrum && !wf.mid.isEmpty
+        var full = Path(), low = Path(), painter = SpectrumPainter()
         var x = rect.minX
         while x < rect.maxX {
             let beat = now + Double(x - playX) / Double(ppb)
             let s = g.seconds(atBeat: beat)
             if s >= 0, s < g.duration {
-                let lv = wf.level(from: s, to: s + secondsPerPixel * Double(step))
+                let lv = wf.bands(from: s, to: s + secondsPerPixel * Double(step))
                 let hf = CGFloat(lv.full) * half, hl = CGFloat(lv.low) * half
-                full.addRect(CGRect(x: x, y: mid - hf, width: step - 0.5, height: hf * 2))
-                low.addRect(CGRect(x: x, y: mid - hl, width: step - 0.5, height: hl * 2))
+                let column = CGRect(x: x, y: mid - hf, width: step - 0.5, height: hf * 2)
+                if spectrum {
+                    painter.add(column, low: lv.low, mid: lv.mid, high: lv.high)
+                } else {
+                    full.addRect(column)
+                    low.addRect(CGRect(x: x, y: mid - hl, width: step - 0.5, height: hl * 2))
+                }
             }
             x += step
         }
         let o = dim ? 0.3 : 1.0
-        ctx.fill(full, with: .color(color.opacity(0.35 * o)))
-        ctx.fill(low, with: .color(color.opacity(0.9 * o)))
+        if spectrum {
+            painter.fill(ctx, opacity: o)
+        } else {
+            ctx.fill(full, with: .color(color.opacity(0.35 * o)))
+            ctx.fill(low, with: .color(color.opacity(0.9 * o)))
+        }
         // This deck's own bar at the playhead, so the two decks' positions can be compared at a glance.
         if now >= 0 {
             ctx.draw(Text("BAR \(Int(floor(now / 4)) + 1)").font(.tj(10, weight: .heavy)).foregroundColor(color.opacity(o)),
