@@ -45,6 +45,12 @@ description: How the Touch Jockey phone/tablet web surface works, its WebSocket 
   `matchMedia("(orientation: portrait)")`, and drag maths uses the matching axis.
 - The lane tint blends by share: blue when all A, orange when all B.
 
+- **Never trust pointerup to arrive.** iOS sometimes drops it (notifications, the app
+  switcher, system gestures, lost capture), and a control held by a lost finger ignores every
+  later touch. `releaseAll()` lets go on `lostpointercapture`, when a touch event reports no
+  fingers left, when the page is hidden, and on reconnect. On the Mac, a phone's `hello` on a
+  new connection frees what its old connection owned.
+
 ## Devices, per-deck controls and self-update
 
 - On connect the page sends `hello` with a stable `device` id (kept in localStorage)

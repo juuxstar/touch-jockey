@@ -16,10 +16,19 @@ final class TooltipCenter: ObservableObject {
     /// The coordinate space (and so the layer) the current tip belongs to.
     @Published private(set) var space = tooltipSpace
     private var owner: UUID?
+    /// The tip showing came from hovering (not a clicked ⓘ).
+    private var fromHover = false
 
-    func show(_ text: String, at anchor: CGRect, in space: String, owner id: UUID) {
-        guard !text.isEmpty else { return }
+    /// While music plays, hover tooltips stay hidden so they don't cover the decks mid-mix.
+    /// Clicked ⓘ help still opens: the user asked for it.
+    var quiet = false {
+        didSet { if quiet, fromHover { hideAll() } }
+    }
+
+    func show(_ text: String, at anchor: CGRect, in space: String, owner id: UUID, hover: Bool = false) {
+        guard !text.isEmpty, !(hover && quiet) else { return }
         _ = escMonitor
+        fromHover = hover
         self.text = text
         self.anchor = anchor
         self.space = space
@@ -79,7 +88,7 @@ private struct TipModifier: ViewModifier {
                 hovering = inside
                 if inside {
                     DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                        if hovering { TooltipCenter.shared.show(text, at: frame, in: space, owner: id) }
+                        if hovering { TooltipCenter.shared.show(text, at: frame, in: space, owner: id, hover: true) }
                     }
                 } else {
                     TooltipCenter.shared.hide(owner: id)
@@ -120,7 +129,7 @@ private struct StillTipModifier: ViewModifier {
                     DispatchQueue.main.asyncAfter(deadline: .now() + stillFor) {
                         // Show only if nothing moved since, the pointer is still here, and no drag is on.
                         if inside, !pressed, lastMove == moved {
-                            TooltipCenter.shared.show(text, at: frame, in: space, owner: id)
+                            TooltipCenter.shared.show(text, at: frame, in: space, owner: id, hover: true)
                         }
                     }
                 case .ended:

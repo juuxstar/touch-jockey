@@ -172,6 +172,17 @@ mix.setCrossfader(0.2)
 mix.stopAll()
 check("Stop all keeps the mixer", mix.crossfader == 0.2)
 
+print("\n12. Bring in starts the incoming deck from where it's parked")
+mix.play(deck: mix.outgoing); wait(1)
+let inc = mix.decks[mix.incoming]
+mix.seek(deck: mix.incoming, toBeat: 64)
+mix.cueIncoming(every: 4); wait(2.5)
+if let b = inc.currentBeat() {
+    print(String(format: "   incoming beat %.2f", b))
+    check("starts at the parked bar (64), not bar 1", b > 64 && b < 72)
+} else { check("incoming playing", false) }
+mix.stopAll()
+
 print("\n11. Play all starts both decks together, beats lined up")
 mix.seek(deck: 0, toBeat: 64); mix.seek(deck: 1, toBeat: 33.4)
 mix.playAll()

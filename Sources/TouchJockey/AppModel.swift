@@ -229,6 +229,11 @@ final class AppModel: ObservableObject {
     }
 
     private func hello(_ client: ControlServer.ClientID, deviceID: String, kind: String) {
+        // The same phone on a new connection (it reconnected before the old one was noticed
+        // dead): free whatever the old connection held, or those controls would ignore it.
+        for old in devices where old.id == deviceID && old.client != client {
+            for (c, owner) in owners where owner == old.client { owners[c] = nil }
+        }
         devices.removeAll { $0.client == client || $0.id == deviceID }
         let same = devices.filter { $0.name == kind || $0.name.hasPrefix(kind + " ") }.count
         devices.append(SurfaceDevice(id: deviceID, client: client, name: same == 0 ? kind : "\(kind) \(same + 1)",
@@ -308,6 +313,9 @@ final class AppModel: ObservableObject {
             decks[i].paused = d.pausedBeat != nil
             decks[i].atCue = !d.isPlaying && d.pausedBeat == nil
         }
+        // No hover tooltips while either deck plays.
+        let playing = mix.decks.contains { $0.isPlaying }
+        if TooltipCenter.shared.quiet != playing { TooltipCenter.shared.quiet = playing }
     }
 
     private func tick() {

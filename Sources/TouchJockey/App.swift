@@ -342,10 +342,10 @@ struct ContentView: View {
                 if !isOut {
                     Button("Bring in next bar") { m.cueIncoming(every: 4) }
                         .disabled(d.bpm == nil || !m.decks[m.outgoing].playing).tjButton(TJ.deck(i))
-                        .tip("**Bring in next bar**: start this track from bar 1, synced, at the start of the master\'s next bar.\n\nIt stays **silent** until you move the lanes.")
+                        .tip("**Bring in next bar**: start this track from where it's parked (bar 1 unless you moved it), synced, at the start of the master\'s next bar.\n\nIt stays **silent** until you move the lanes.")
                     Button("Next phrase") { m.cueIncoming(every: 32) }
                         .disabled(d.bpm == nil || !m.decks[m.outgoing].playing).tjButton(TJ.deck(i))
-                        .tip("**Next phrase**: start this track from bar 1, synced, when the master reaches its next **phrase** (8 bars).\n\nPhrases are where dance tracks change, so this is the natural moment to bring a track in.")
+                        .tip("**Next phrase**: start this track from where it's parked (bar 1 unless you moved it), synced, when the master reaches its next **phrase** (8 bars).\n\nPhrases are where dance tracks change, so this is the natural moment to bring a track in.")
                 }
                 if m.headphones != nil {
                     Button { m.toggleCue(i) } label: { Image(systemName: "headphones").frame(width: 18) }

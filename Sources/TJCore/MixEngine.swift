@@ -288,14 +288,18 @@ public final class MixEngine {
 
     /// Starts the incoming deck, synced and phase-aligned, on the outgoing deck's next
     /// boundary of `every` beats (4 = next bar, 32 = next phrase).
+    ///
+    /// It starts from where it's parked: its paused position or cue point (bar 1 unless it was
+    /// moved), on a whole beat so the beats line up. Park it on a bar and the bars line up too.
     public func cueIncoming(every beats: Double = 32) {
         let inc = decks[incoming], out = decks[outgoing]
-        guard let outBPM = out.playingBPM, let inGrid = inc.grid,
+        guard !inc.isPlaying, let outBPM = out.playingBPM, let inGrid = inc.grid,
               let (host, beat) = hostTime(ofNextBoundary: beats) else { return }
         baseRatio = outBPM / inGrid.bpm
         phaseIntegral = 0
         inc.timePitch.rate = Float(baseRatio)
-        inc.play(fromBeat: 0, atHostTime: host)
+        inc.play(fromBeat: max(0, inc.parkedBeat.rounded()), atHostTime: host)
+        inc.pausedBeat = nil
         incomingStartBeat = beat
         onChange?()
     }

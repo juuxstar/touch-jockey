@@ -30,6 +30,8 @@ the screen, and leave as much room as possible for DJing.
   moving, for 1 second**, and hides on any movement or press. That's what `.tip("…")`
   does (`StillTipModifier`). It matters most on sliders, which the pointer sits on
   while they're in use.
+- **No hover tooltips while either deck plays** (`TooltipCenter.quiet`, set from
+  `AppModel.refresh`), so they never cover the decks mid-mix. Clicked ⓘ help still opens.
 - **ⓘ help icons open only when clicked** (`InfoTip`, `ClickTipModifier`), never on
   hover. They stay open while being read; clicking the ⓘ again, opening another one, or Esc closes them. Help text must say
   "click the ⓘ", not "hover".
