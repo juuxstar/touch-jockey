@@ -25,7 +25,7 @@ struct DeckPosition: View {
     private var now: Now? {
         let d = mix.decks[deck]
         guard let g = d.grid else { return nil }
-        let beat = d.currentBeat() ?? d.parkedBeat
+        let beat = d.shownBeat
         let s = min(max(g.seconds(atBeat: beat), 0), g.duration)
         return Now(seconds: s, duration: g.duration, beat: beat, beatsTotal: g.beat(atSeconds: g.duration))
     }

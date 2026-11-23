@@ -171,6 +171,10 @@ public final class Deck {
     /// Where a stopped deck sits: its paused position, or its cue point.
     public var parkedBeat: Double { pausedBeat ?? cueBeat }
 
+    /// Where to show the deck: playing, its current beat; started but waiting for a scheduled
+    /// start (Next phrase, say), the beat it will start from; stopped, where it's parked.
+    public var shownBeat: Double { currentBeat() ?? (isPlaying ? startedFromBeat : parkedBeat) }
+
     /// True once a stopped deck has been moved off bar 1 (jogged, paused or cued elsewhere).
     public var isParkedAway: Bool { !isPlaying && (pausedBeat != nil || cueBeat > 0) }
 

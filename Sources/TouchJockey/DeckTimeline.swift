@@ -59,7 +59,7 @@ struct DeckTimeline: View {
         let laneGap: CGFloat = 8
         let laneH = (size.height - laneGap) / 2
 
-        let outNow = out.currentBeat() ?? out.parkedBeat
+        let outNow = out.shownBeat
         // The outgoing beat that lines up with the incoming track's beat 0 (so incoming beat = outNow - offset).
         // A playing deck's real position wins; a scheduled start counts from the beat it starts at,
         // which isn't bar 1 when it resumes mid-track (PLAY, Play all).
