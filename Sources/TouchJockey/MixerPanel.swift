@@ -55,7 +55,7 @@ struct MixerPanel: View {
                 }
                 Button { m.playAll() } label: { Label("Play all", systemImage: "play.fill") }
                     .tjButton(TJ.mint).disabled(!m.canPlayAll)
-                    .tip("**Play all**: start both decks together, each from where it's parked, with their beats lined up. Shortcut: **Space**.\n\nIf one deck is already playing, the other joins on its next beat.")
+                    .tip("**Play all**: start both decks together, each from where it's parked, with their beats lined up.\n\nIf one deck is already playing, the other joins on its next beat.\n\nShortcut: **Space**")
                 Button("Stop all") { m.stopAll() }.tjButton(TJ.rose)
                     .tip(mixerMode
                          ? "**Stop all**: stop both decks and send them back to bar 1.\n\nThe mixer's EQ and faders stay where they are."

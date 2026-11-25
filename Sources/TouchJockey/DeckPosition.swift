@@ -5,7 +5,7 @@ import TJCore
 /// through the 8-bar phrase, and an overview of the whole track with a playhead.
 /// Redrawn about 20 times a second from the engine, so it follows playback, jogs and cues.
 ///
-/// While the deck is stopped, clicking or dragging the overview moves it there (snapped to a bar).
+/// While the deck is stopped, clicking or dragging the overview moves it there (snapped to a phrase line).
 struct DeckPosition: View {
     let mix: MixEngine
     let deck: Int
@@ -112,11 +112,14 @@ struct DeckPosition: View {
                     guard !mix.decks[deck].isPlaying, let grid = mix.decks[deck].grid else { return }
                     let f = min(max(g.location.x / max(geo.size.width, 1), 0), 1)
                     let beat = grid.beat(atSeconds: Double(f) * grid.duration)
-                    mix.seek(deck: deck, toBeat: max(0, (beat / 4).rounded() * 4))
+                    // Snap to a phrase line, so two decks parked here start in phrase (Play all).
+                    var phrase = (beat / 32).rounded() * 32
+                    if phrase > grid.beat(atSeconds: grid.duration) - 1 { phrase -= 32 }
+                    mix.seek(deck: deck, toBeat: max(0, phrase))
                 })
         }
         .frame(height: 30)
-        .tip(stopped ? "**Track overview**: the whole track, with the white line where the deck is.\n\nWhile the deck is stopped, **click or drag** here to move to another bar."
+        .tip(stopped ? "**Track overview**: the whole track, with the white line where the deck is.\n\nWhile the deck is stopped, **click or drag** here to move to another **phrase** (the faint lines). Drag the waveform above to fine-tune by the beat."
                      : "**Track overview**: the whole track, with the white line where the deck is. Faint lines mark every 8-bar **phrase**.")
     }
 

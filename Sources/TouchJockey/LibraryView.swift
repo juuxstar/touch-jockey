@@ -78,6 +78,7 @@ struct LibraryView: View {
             }
             .padding(.horizontal, 8).frame(width: 300, height: 24)
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(searchFocused ? TJ.sky : Color.white.opacity(0.15), lineWidth: 1.5))
+            .tip("**Search** the library by title, artist or album.\n\nShortcut: **⌘F**")
             // Recent / All as the app's own buttons: the selected one is filled.
             HStack(spacing: 6) {
                 Button("Recent (\(lib.recents.count))") { lib.showRecent = true }
