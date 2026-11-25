@@ -7,6 +7,9 @@ struct GuideChapter: Identifiable, Hashable {
     let id: String          // file name without extension, for example "04-first-transition"
     let title: String       // the chapter's "# " heading
     let body: String        // everything after the heading
+    /// The chapter's file has a `<!-- practice-tracks -->` line: its exercise needs two tracks,
+    /// so Go practice sets up a practice pair and the practice bar offers Reset and New pair.
+    var wantsPracticeTracks = false
 
     /// The chapter's "## Practice" section, if it has one (the exercise shown while practising).
     var practice: String? {
@@ -31,8 +34,12 @@ struct GuideChapter: Identifiable, Hashable {
                 var lines = text.components(separatedBy: "\n")
                 let title = lines.first.map { $0.hasPrefix("# ") ? String($0.dropFirst(2)) : $0 } ?? url.lastPathComponent
                 lines.removeFirst()
+                let marker = "<!-- practice-tracks -->"
+                let wants = lines.contains { $0.trimmingCharacters(in: .whitespaces) == marker }
+                lines.removeAll { $0.trimmingCharacters(in: .whitespaces).hasPrefix("<!--") }
                 return GuideChapter(id: url.deletingPathExtension().lastPathComponent, title: title,
-                                    body: lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines))
+                                    body: lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines),
+                                    wantsPracticeTracks: wants)
             }
     }
 }
@@ -147,16 +154,20 @@ struct GuideView: View {
             if ch.practice != nil {
                 Button {
                     app.practiceChapter = ch
+                    if ch.wantsPracticeTracks, !app.mix.decks.contains(where: { $0.isPlaying }) { app.setUpPractice() }
                     dismiss()
                 } label: { Label("Go practice", systemImage: "figure.dance") }
                 .tjButton(TJ.sky)
-                .tip("**Go practice**: close the guide and try this chapter's exercise. A practice bar keeps the steps at hand, and brings you back here when you're ready.")
+                .tip(ch.wantsPracticeTracks
+                     ? "**Go practice**: close the guide and try this chapter's exercise. A practice bar keeps the steps at hand, and brings you back here when you're ready.\n\nThe two decks are **set up for you**: the tracks already loaded, or two that fit from your library, one near its end and the other at bar 1. Press **Play all** to start."
+                     : "**Go practice**: close the guide and try this chapter's exercise. A practice bar keeps the steps at hand, and brings you back here when you're ready.")
             }
             if index < chapters.count - 1 {
                 Button { current = chapters[index + 1].id } label: { Label("Next", systemImage: "chevron.right") }
                     .tjButton(TJ.gold, filled: true)
             } else {
                 Button("Close") { dismiss() }.tjButton(TJ.gold, filled: true)
+                    .tip("**Close** the guide. It opens again at this chapter.\n\nShortcut: **Esc**")
             }
         }
         .padding(.horizontal, 28).padding(.vertical, 14)

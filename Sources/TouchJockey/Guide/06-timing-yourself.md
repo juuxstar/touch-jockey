@@ -8,7 +8,7 @@ Hitting the downbeat yourself is a basic DJ skill. Count the bar in your head an
 
 ## In Touch Jockey
 
-Turn it on in **Settings → Your skills → Bass-swap timing → Free**. A flick now lands the moment you make it.
+It unlocks after 5 clean handoffs. Switch to it from the scorecard, or in **Settings → Your skills → Bass-swap timing → Free**. A flick now lands the moment you make it, and the scorecard tells you how many milliseconds early or late your bass swap was.
 
 1. Count the bars along with the music.
 2. Flick LOWS on the ONE of a new phrase.
@@ -17,3 +17,5 @@ Turn it on in **Settings → Your skills → Bass-swap timing → Free**. A flic
 ## Practice
 
 Do ten handoffs with Free timing. If more than two sound off, go back to Snap for a while. There's no shame in it; the point is to learn.
+
+<!-- practice-tracks -->

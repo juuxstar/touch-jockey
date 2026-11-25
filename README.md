@@ -20,6 +20,8 @@ Working:
 - Three-band handoff with 24 dB/octave crossovers at 200 Hz and 2.5 kHz and equal-power lanes.
 - Flick to swap a band on the next bar. When every lane reaches the incoming side, the handoff finishes on the next bar and the decks swap roles.
 - A learning ladder (Settings → Your skills): blend with the handoff lanes or the full mixer, and Flick snapped to the bar or free. See [Learning ladder](#learning-ladder).
+- A handoff scorecard after every handoff at the handoff level; clean handoffs unlock Free timing (5) and the CUE buttons (10). See [Unlocks](#unlocks).
+- Guide practice: **Go practice** on a transition chapter parks two tracks (the ones loaded, or a tempo- and key-matched pair from the library) on phrase lines, the outgoing one four phrases from its end; the practice bar has Reset and New pair.
 - A conventional two-channel mixer at the mixer level: per-deck HIGH/MID/LOW EQ (kill at the bottom, 0 dB at the centre, +6 dB at the top), a volume fader per deck, and a crossfader. Mixer and lanes never act at once (see [Gain model](#gain-model)).
 - Speakers and headphones (Settings → Audio): each deck gets a headphones button that sends it to the headphones before the bands, lanes and faders, so a deck silent in the speakers is still heard there; a cue-mix slider beside the mixer sets what the headphones play (cued decks, the speaker mix, or both). Separate devices are joined in a private aggregate device; a device with four or more outputs can carry the headphones on channels 3–4.
 - Web surface for any phone or tablet:
@@ -81,6 +83,7 @@ open build/TouchJockey.app --args --volume 0.3 --a "path/to/a.mp3" --b "path/to/
 build/tj-analyze ~/Music/serenity/*/*/*.mp3    # check the beat analysis
 scripts/drive.py                               # scripted handoff over the WebSocket, like a phone
 scripts/mixer_test.sh                          # muted engine test of the blend levels, hand-overs, role swap and Flick timing
+scripts/coach_test.sh                          # handoff scorecard and unlocks, no audio
 ```
 
 ## Building
@@ -103,6 +106,7 @@ Sources/
     AudioOutputs.swift     output devices; the private speakers + headphones aggregate device
     MixEngine.swift        two decks, handoff lanes, flicks, role swap, phase lock; EQ, faders, crossfader
     SkillLadder.swift      the learning ladder: techniques and their levels
+    HandoffCoach.swift     scores a handoff (HandoffReport); SkillProgress and its unlocks
     ControlServer.swift    HTTP for the surface (8080) + WebSocket for control (8081)
   TouchJockey/             the Mac app
     App.swift              window (SwiftUI)
@@ -132,6 +136,31 @@ up or down at any time.
 
 A new level is one `SkillLevel` case plus its text in `Settings.swift` and whatever
 behaviour it changes.
+
+### Unlocks
+
+Some levels and controls are earned. `HandoffCoach` (TJCore) scores each handoff at
+the handoff blend level from the lanes as heard, in the outgoing deck's beats; the
+engine reports it through `onHandoffReport` when the roles swap (or when the old
+track ends first). A handoff is **clean** when it passes all five checks:
+
+| Check | Passes when |
+| --- | --- |
+| Came in on a phrase line | the incoming track started within a beat of a phrase line (32 beats) |
+| Bass swap on a phrase line | LOWS last crossed half-way within a beat of a phrase line |
+| Basslines together under a bar | LOWS spent under 4 beats between 0.2 and 0.8 |
+| Blend over 8 bars or more | 32+ beats from the first lane leaving the old track to the finish |
+| Finished before the track ran out | the lanes finished before the old track's last beat |
+
+At **free** timing the report also gives the bass swap's offset from the nearest bar
+line in milliseconds.
+
+`SkillProgress` (TJCore) counts clean handoffs and holds the unlocks, saved in
+UserDefaults (`skillProgress`): **Free** timing after 5, the **CUE** buttons after 10.
+A locked level can't be chosen (Settings shows a lock and how many handoffs are left).
+**I already DJ: unlock everything** in Your skills lifts every lock; turning it off
+locks again what wasn't earned. Settings saved before unlocks existed keep their levels:
+`free` timing grants Free, and `free` or `mixer` grants CUE.
 
 **Switching blend level never jumps the sound.** Handoff → mixer sets each deck's
 EQ to the gain its lane was giving that band (faders full, crossfader centred);
@@ -163,7 +192,8 @@ deck volume =   1                      fader gain × crossfader    (each deck's 
   x > 0.5, B = sin(x·π) for x < 0.5. Smooth, with no dip in the middle.
 
 At the handoff level, the lanes finish a handoff: when all three reach the
-incoming side, the outgoing deck stops on the next bar and the roles swap. The
+incoming side, the outgoing deck stops on the next bar, paused on that bar (so
+PLAY or bringing it back in carries on from there), and the roles swap. The
 mixer ignores input. At the mixer level, the roles swap when the outgoing deck
 stops or pauses while the incoming deck plays (so the deck you hear is the
 master and SYNC follows it), and lane, flick and stable messages are ignored.

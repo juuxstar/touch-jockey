@@ -35,6 +35,10 @@ public final class MixEngine {
     public private(set) var incomingStartBeat: Double?
     /// Called on the main queue whenever roles, lanes or tracks change.
     public var onChange: (() -> Void)?
+    /// Called on the main queue when a handoff at the handoff blend level ends, with how it went.
+    public var onHandoffReport: ((HandoffReport) -> Void)?
+    /// Scores the handoff in progress (see `HandoffCoach`).
+    public private(set) var coach = HandoffCoach()
 
     private var finishScheduled = false
     /// SYNC: the incoming deck follows the outgoing deck's tempo and beat. On by default.
@@ -457,9 +461,24 @@ public final class MixEngine {
         for d in decks { d.stop(); d.pausedBeat = nil }
         incomingStartBeat = nil
         finishScheduled = false
+        coach.cancel()
         let end = laneEnd(forDeck: outgoing)
         lanes = [.low: end, .mid: end, .high: end]
         applyGains()
+        onChange?()
+    }
+
+    /// Sets both decks up for practising a transition: stops everything (as `stopAll`), parks
+    /// the outgoing deck on the phrase line that leaves `phrasesLeft` phrases or a little more before
+    /// its end, and makes that its cue point, then puts the incoming deck at bar 1. Both sit
+    /// on phrase lines, so Play all and Next phrase start them in phrase, and Stop all comes back here.
+    public func parkForPractice(phrasesLeft: Int = 4) {
+        stopAll()
+        let out = decks[outgoing], inc = decks[incoming]
+        guard let og = out.grid, inc.grid != nil else { return }
+        let total = og.beat(atSeconds: og.duration)
+        out.cueBeat = max(0, floor((total - Double(32 * phrasesLeft)) / 32) * 32)
+        inc.cueBeat = 0
         onChange?()
     }
 
@@ -477,6 +496,7 @@ public final class MixEngine {
         guard !mixerMode else { return }
         lanes[band] = min(1, max(0, value))
         applyGains()
+        coachSample()
         checkFinish()
         onChange?()
     }
@@ -529,6 +549,7 @@ public final class MixEngine {
     public func backToStable() {
         guard !mixerMode else { return }
         for b in Band.allCases { lanes[b] = laneEnd(forDeck: outgoing); rampGeneration[b, default: 0] += 1 }
+        coach.cancel()
         applyGains()
         onChange?()
     }
@@ -710,12 +731,50 @@ public final class MixEngine {
         Self.fire(at: timing.host, lead: timing.lead, on: .main) {
             self.finishScheduled = false
             guard !self.mixerMode, self.allOnIncoming else { return }
-            self.decks[self.outgoing].stop()
+            self.coachSample()
+            let report = self.coach.finish(atBeat: timing.beat)
+            // The old track pauses on the bar it stopped at, so its deck shows where it got to
+            // and PLAY (or bringing it back in) carries on from there rather than from bar 1.
+            let old = self.decks[self.outgoing]
+            old.stop()
+            if let g = old.grid { old.pausedBeat = min(timing.beat, g.beat(atSeconds: g.duration) - 1) }
             self.outgoing = self.incoming
             self.incomingStartBeat = nil
             // Lanes stay where they are: the new outgoing deck is now fully up.
             self.onChange?()
+            if let report { self.onHandoffReport?(report) }
         }
+    }
+
+    // MARK: Handoff coach
+
+    /// Starts, follows and ends the coach's handoff. Called every tick.
+    private func coachTick() {
+        let out = decks[outgoing], inc = decks[incoming]
+        guard !mixerMode, out.isPlaying, inc.isPlaying, let g = out.grid, let ob = out.heardBeat() else {
+            if coach.active, !finishScheduled { coach.cancel() }
+            return
+        }
+        if ob >= g.beat(atSeconds: g.duration) {
+            // The old track has ended (its player runs on in silence): no new handoff starts.
+            if let r = coach.ranOut(atBeat: ob) { onHandoffReport?(r) }
+            return
+        }
+        if !coach.active {
+            // The incoming track has started (not just been scheduled to).
+            guard let s = incomingStartBeat, ob >= s else { return }
+            coach.begin(entryBeat: s, timing: ladder.timing)
+        }
+        coachSample()
+    }
+
+    /// Tells the coach where the lanes are, as the music is heard.
+    private func coachSample() {
+        guard coach.active, let g = decks[outgoing].grid, let ob = decks[outgoing].heardBeat() else { return }
+        let toB = incoming == 1
+        var progress: [Band: Double] = [:]
+        for b in Band.allCases { let x = lanes[b] ?? 0; progress[b] = toB ? x : 1 - x }
+        coach.sample(beat: ob, progress: progress, secondsPerBeat: g.secondsPerBeat / Double(decks[outgoing].timePitch.rate))
     }
 
     // MARK: Phase lock
@@ -734,6 +793,7 @@ public final class MixEngine {
     /// Call it regularly (the app calls it 30 times a second).
     public func syncTick(interval dt: Double) {
         if mixerMode, !decks[outgoing].isPlaying, decks[incoming].isPlaying { checkMixerSwap(); onChange?() }
+        coachTick()
         let inc = decks[incoming], out = decks[outgoing]
         guard syncOn, inc.isPlaying, out.isPlaying, incomingStartBeat == nil || (outgoingBeat() ?? 0) >= (incomingStartBeat ?? 0),
               let ib = inc.currentBeat(), let ob = out.currentBeat(), ib >= 0 else { return }

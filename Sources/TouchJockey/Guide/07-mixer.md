@@ -29,3 +29,5 @@ A typical mixer transition:
 ## Practice
 
 Repeat the four steps until they flow. Then try the tension trick: kill A's bass one bar *before* bringing B's in.
+
+<!-- practice-tracks -->

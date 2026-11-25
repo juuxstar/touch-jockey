@@ -17,7 +17,7 @@ Your phone is the instrument: you'll blend with your fingers.
 
 ## The screen
 
-- **Decks A and B**: each has **CUE**, **PLAY/PAUSE** and **SYNC** (or **MASTER** for the deck that sets the tempo).
+- **Decks A and B**: each has **PLAY/PAUSE** and **SYNC** (or **MASTER** for the deck that sets the tempo). A **CUE** button joins them once you've unlocked it.
 - **Timeline**: both tracks lined up beat for beat. The white line is now.
 - **Mixer**: on the Mac, it shows what the phone is doing. Later, it becomes the real mixer.
 - **ⓘ icons**: click one whenever you're unsure what something is.

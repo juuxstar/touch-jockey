@@ -14,6 +14,8 @@ enum SettingsKey {
     static let keepAwake = "keepAwakeWhilePlaying"
     /// The learning ladder, as `SkillLadder.dictionary` (`{"blend": "handoff", …}`).
     static let skillLadder = "skillLadder"
+    /// Clean handoffs and unlocks, as `SkillProgress.dictionary`.
+    static let skillProgress = "skillProgress"
     /// Output devices, by Core Audio UID: the speakers (absent = the system default) and the
     /// headphones (absent = none).
     static let speakersDevice = "speakersDevice"
@@ -109,6 +111,7 @@ struct SettingsView: View {
                 Button("Done") { m.showSettings = false }
                     .keyboardShortcut(.defaultAction)
                     .tjButton(TJ.sky, filled: true)
+                    .tip("**Done**: close Settings. Changes are saved as you make them.\n\nShortcut: **Return** or **Esc**")
             }
             .padding(.horizontal, 16).padding(.vertical, 12)
         }
@@ -173,6 +176,8 @@ struct SettingsView: View {
             **Your skills**: Touch Jockey starts you on simpler controls, and swaps each one for the real thing once you've got the hang of it.
 
             Each **technique** has its own ladder. **Click a level** to move to it. You can step up or down at any time, even in the middle of a mix: the sound carries over.
+
+            Some levels and controls are **locked** until you've shown the skill before them: each **clean handoff** (every check on the scorecard passed) counts towards the next unlock.
             """
         case .display: return """
             **Text size** scales every label and button in Touch Jockey.
@@ -273,6 +278,7 @@ struct SettingsView: View {
 
     private var skills: some View {
         VStack(alignment: .leading, spacing: 16) {
+            unlocks
             ForEach(Technique.allCases, id: \.self) { t in
                 VStack(alignment: .leading, spacing: 6) {
                     Text(t.title).font(.tj(13, weight: .semibold))
@@ -282,20 +288,57 @@ struct SettingsView: View {
         }
     }
 
+    /// Clean handoffs so far, what each unlock needs, and the way out for people who already DJ.
+    private var unlocks: some View {
+        let p = m.progress
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("Unlocks").font(.tj(13, weight: .semibold))
+            Text("\(p.cleanHandoffs) clean \(p.cleanHandoffs == 1 ? "handoff" : "handoffs") so far, out of \(p.handoffs).")
+                .font(.tj(12)).foregroundColor(TJ.mute).monospacedDigit()
+            ForEach(SkillProgress.Unlock.allCases, id: \.self) { u in
+                HStack(spacing: 8) {
+                    Image(systemName: p.isUnlocked(u) ? "lock.open.fill" : "lock.fill")
+                        .foregroundColor(p.isUnlocked(u) ? TJ.mint : TJ.mute).frame(width: 18)
+                    Text(u.title.prefix(1).uppercased() + u.title.dropFirst()).font(.tj(12.5, weight: .semibold))
+                    Text(p.isUnlocked(u) ? "unlocked" : "after \(u.cleanHandoffsNeeded) clean handoffs")
+                        .font(.tj(12)).foregroundColor(TJ.mute)
+                }
+            }
+            Toggle(isOn: Binding(get: { m.progress.unlockEverything }, set: { m.setUnlockEverything($0) })) {
+                Text("I already DJ: unlock everything").font(.tj(12.5))
+            }
+            .toggleStyle(.checkbox)
+            .tip("**Unlock everything**: every control and level, without the practice handoffs. Turn it off to earn them again; what you've already earned stays unlocked.")
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.03)))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.white.opacity(0.1), lineWidth: 1))
+    }
+
     /// One rung of a ladder: click to move to it. The current level is highlighted.
     private func levelRow(_ level: SkillLevel) -> some View {
         let on = m.ladder[level.technique] == level
-        let color = SettingsSection.skills.color
+        let locked = !m.progress.allows(level)
+        let color = locked ? TJ.mute : SettingsSection.skills.color
+        let lockLine: String? = SkillProgress.unlock(for: level).map { u in
+            let left = max(0, u.cleanHandoffsNeeded - m.progress.cleanHandoffs)
+            return "Locked: \(left) more clean \(left == 1 ? "handoff" : "handoffs") to unlock."
+        }
         return HStack(spacing: 8) {
             Button { m.setLevel(level) } label: {
                 HStack(spacing: 10) {
-                    Text("\(level.rung + 1)").font(.tj(11, weight: .heavy)).foregroundColor(on ? .black : color)
+                    Group {
+                        if locked { Image(systemName: "lock.fill").font(.tj(10, weight: .bold)) }
+                        else { Text("\(level.rung + 1)").font(.tj(11, weight: .heavy)) }
+                    }
+                    .foregroundColor(on ? .black : color)
                         .frame(width: 20 * s, height: 20 * s)
                         .background(RoundedRectangle(cornerRadius: 4).fill(on ? color : .clear))
                         .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(color, lineWidth: 1.5))
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(level.title).font(.tj(12.5, weight: .semibold)).foregroundColor(on ? color : .white)
-                        Text(level.line).font(.tj(11.5)).foregroundColor(TJ.mute).lineLimit(1).minimumScaleFactor(0.85)
+                        Text(level.title).font(.tj(12.5, weight: .semibold)).foregroundColor(on ? color : locked ? TJ.mute : .white)
+                        Text(locked ? (lockLine ?? level.line) : level.line)
+                            .font(.tj(11.5)).foregroundColor(TJ.mute).lineLimit(1).minimumScaleFactor(0.85)
                     }
                     Spacer(minLength: 0)
                 }
@@ -305,7 +348,8 @@ struct SettingsView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .modifier(OptionalTip(text: on ? nil : level.switchTip))
+            .disabled(locked)
+            .modifier(OptionalTip(text: on ? nil : locked ? "**Locked**: do clean handoffs to unlock it (the scorecard after each handoff shows which checks passed), or tick **I already DJ: unlock everything** above." : level.switchTip))
             InfoTip(level.help)
         }
     }

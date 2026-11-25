@@ -99,6 +99,23 @@ enum UIScale {
     }
 }
 
+extension SkillProgress.Unlock {
+    var title: String {
+        switch self {
+        case .freeTiming: return "Free bass-swap timing"
+        case .cue: return "CUE buttons"
+        }
+    }
+
+    /// What changed, in a line, when it's unlocked.
+    var unlockedLine: String {
+        switch self {
+        case .freeTiming: return "Your Flicks can land when you make them, not on the next bar."
+        case .cue: return "Each deck has a CUE button now, to set your own starting points."
+        }
+    }
+}
+
 extension Font {
     /// The app's font at a base size, scaled by the text-size setting.
     static func tj(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
@@ -217,6 +234,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             mainColumn
             LibraryView().frame(minHeight: 170, maxHeight: .infinity)
+            if let r = m.lastReport { scorecard(r) }
             if let ch = m.practiceChapter { practiceBar(ch) }
             statusLine
         }
@@ -271,6 +289,70 @@ struct ContentView: View {
         }
     }
 
+    /// After a handoff at the handoff level: each check passed or missed, progress towards the
+    /// next unlock, and anything this handoff unlocked.
+    func scorecard(_ r: HandoffReport) -> some View {
+        let color = r.clean ? TJ.mint : TJ.gold
+        let passed = r.checks.filter(\.passed).count
+        let next = SkillProgress.Unlock.allCases.first { !m.progress.isUnlocked($0) }
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: r.clean ? "checkmark.seal.fill" : "list.bullet.clipboard").foregroundColor(color)
+                Text(r.clean ? "Clean handoff" : "Handoff: \(passed) of \(r.checks.count) checks")
+                    .font(.tj(11, weight: .heavy)).tracking(1).textCase(.uppercase).foregroundColor(color)
+                Spacer()
+                if let next {
+                    Text("\(m.progress.cleanHandoffs) of \(next.cleanHandoffsNeeded) clean handoffs to unlock \(next.title)")
+                        .font(.tj(12)).foregroundColor(TJ.mute).monospacedDigit()
+                    ProgressView(value: Double(min(m.progress.cleanHandoffs, next.cleanHandoffsNeeded)),
+                                 total: Double(next.cleanHandoffsNeeded))
+                        .tint(TJ.mint).frame(width: 90)
+                } else {
+                    Text("\(m.progress.cleanHandoffs) clean handoffs").font(.tj(12)).foregroundColor(TJ.mute).monospacedDigit()
+                }
+                Button { m.lastReport = nil; m.newUnlocks = [] } label: { Image(systemName: "xmark") }
+                    .tjButton(TJ.mute)
+                    .tip("**Close** the scorecard. The next handoff brings a new one.")
+            }
+            HStack(alignment: .top, spacing: 14) {
+                ForEach(Array(r.checks.enumerated()), id: \.offset) { k, c in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Label(c.title, systemImage: c.passed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .font(.tj(12, weight: .semibold))
+                            .foregroundColor(c.passed ? TJ.mint : TJ.rose)
+                        Text(k == 1 ? c.detail + Self.offsetText(r.bassSwapOffsetMs) : c.detail)
+                            .font(.tj(11.5)).foregroundColor(TJ.mute)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            ForEach(m.newUnlocks, id: \.self) { u in
+                HStack(spacing: 10) {
+                    Image(systemName: "lock.open.fill").foregroundColor(TJ.gold)
+                    Text("Unlocked: \(u.title)").font(.tj(13, weight: .bold)).foregroundColor(TJ.gold)
+                    Text(u.unlockedLine).font(.tj(12)).foregroundColor(TJ.mute)
+                    Spacer()
+                    if u == .freeTiming, m.ladder.timing != .free {
+                        Button("Switch to Free") { m.setLevel(.free) }
+                            .tjButton(TJ.gold, filled: true)
+                            .tip("**Free timing**: from now on a Flick lands the moment you make it. Step back to **Snap** any time in **Settings → Your skills**.")
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: 10).fill(color.opacity(0.07)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(color, lineWidth: 2))
+    }
+
+    /// " 18 ms early." for a free bass swap; nothing at snap, where it lands on the bar.
+    static func offsetText(_ ms: Double?) -> String {
+        guard let ms else { return "" }
+        let n = Int(abs(ms).rounded())
+        return n < 5 ? " Right on the 1." : " \(n) ms \(ms < 0 ? "early" : "late")."
+    }
+
     /// Shown after "Go practice" in the guide: what you're practising, the exercise, and the way back.
     func practiceBar(_ ch: GuideChapter) -> some View {
         HStack(spacing: 10) {
@@ -281,6 +363,14 @@ struct ContentView: View {
                 InfoTip("**Practice: \(ch.title)**\n\n" + steps)
             }
             Spacer()
+            if ch.wantsPracticeTracks {
+                Button { m.setUpPractice() } label: { Label("Reset", systemImage: "arrow.counterclockwise") }
+                    .tjButton(TJ.sky)
+                    .tip("**Reset**: stop, and set the two decks up again: the deck you mix out of near its end, the other at bar 1. Press **Play all** for another run.")
+                Button { m.setUpPractice(newPair: true) } label: { Label("New pair", systemImage: "shuffle") }
+                    .tjButton(TJ.sky)
+                    .tip("**New pair**: load two different tracks from your library, with similar tempos and keys that blend, and set them up for practice.")
+            }
             Button { m.showGuide = true } label: { Label("Back to the guide", systemImage: "book") }
                 .tjButton(TJ.gold, filled: true)
             Button { m.practiceChapter = nil } label: { Image(systemName: "xmark") }
@@ -354,11 +444,14 @@ struct ContentView: View {
                                       : "**Headphones**: hear this deck in your headphones, even while it's silent in the speakers.\n\nUse it to check the next track before you bring it in.")
                 }
                 // CDJ-style transport: CUE, PLAY/PAUSE, then SYNC on the incoming deck. The master is named in the role label.
+                // CUE is earned with clean handoffs (see SkillProgress); until then Go practice places the tracks.
+                if m.progress.isUnlocked(.cue) {
                 CueButton(color: TJ.deck(i), enabled: d.bpm != nil,
                           onDown: { m.cueDown(i) }, onUp: { m.cueUp(i) })
                     .tip(d.playing ? "**CUE**: jump back to the **cue point** and pause."
                           : d.atCue ? "**CUE**: hold to **preview** from the cue point; let go to return.\n\nPress **PLAY** while holding to keep it playing."
                           : "**CUE**: set the **cue point** here, snapped to the nearest beat.\n\nCUE always comes back to this spot.")
+                }
                 Button { m.togglePlay(i) } label: {
                     Image(systemName: d.playing ? "pause.fill" : "play.fill").frame(width: 16)
                 }

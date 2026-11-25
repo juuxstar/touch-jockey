@@ -59,6 +59,12 @@ final class AppModel: ObservableObject {
     @Published var headphones: AudioOutputs.Device?
     /// The user's level per technique (the learning ladder), saved in UserDefaults.
     @Published var ladder = SkillLadder()
+    /// What the user has shown they can do, and what it has unlocked. Saved in UserDefaults.
+    @Published private(set) var progress = SkillProgress()
+    /// The last handoff's scorecard, shown until dismissed or replaced by the next one.
+    @Published var lastReport: HandoffReport?
+    /// What that handoff unlocked, if anything.
+    @Published var newUnlocks: [SkillProgress.Unlock] = []
     @Published var beat: Double?
     @Published var surfaces = 0
     /// Surfaces that said hello, in the order they connected.
@@ -91,6 +97,7 @@ final class AppModel: ObservableObject {
         }
         do { try mix.start() } catch { status = "Audio engine failed to start: \(error.localizedDescription)" }
         mix.onChange = { [weak self] in self?.refresh() }
+        mix.onHandoffReport = { [weak self] r in self?.record(r) }
 
         let root = Self.surfaceFolder()
         let server = ControlServer(root: root)
@@ -110,7 +117,17 @@ final class AppModel: ObservableObject {
         mix.setSync(sync)
         syncOn = sync
         let saved = UserDefaults.standard.dictionary(forKey: SettingsKey.skillLadder) as? [String: String] ?? [:]
-        mix.setLadder(SkillLadder(dictionary: saved))
+        var ladder = SkillLadder(dictionary: saved)
+        if let p = UserDefaults.standard.dictionary(forKey: SettingsKey.skillProgress) {
+            progress = SkillProgress(dictionary: p)
+        } else {
+            // From before unlocks: whatever level someone already chose, they keep.
+            if ladder.timing == .free { progress.grant(.freeTiming) }
+            if ladder.timing == .free || ladder.blend == .mixer { progress.grant(.cue) }
+            saveProgress()
+        }
+        if !progress.allows(ladder.timing) { ladder.set(.snap) }
+        mix.setLadder(ladder)
         mix.setCueMix(UserDefaults.standard.object(forKey: SettingsKey.cueMix) as? Double ?? 0.5)
         let ud = UserDefaults.standard
         if ud.string(forKey: SettingsKey.speakersDevice) != nil || ud.string(forKey: SettingsKey.headphonesDevice) != nil {
@@ -147,7 +164,7 @@ final class AppModel: ObservableObject {
         showSettings = true
     }
 
-    func load(_ url: URL, into deck: Int) {
+    func load(_ url: URL, into deck: Int, then done: ((Bool) -> Void)? = nil) {
         decks[deck].loading = true
         status = "Analysing \(url.deletingPathExtension().lastPathComponent)…"
         mix.load(url: url, into: deck) { [weak self] result in
@@ -162,7 +179,84 @@ final class AppModel: ObservableObject {
             case .failure(let e): self.status = "Couldn't load that file: \(e.localizedDescription)"
             }
             self.refresh()
+            if case .success = result { done?(true) } else { done?(false) }
         }
+    }
+
+    // MARK: Practice tracks
+
+    /// Gets both decks ready to practise a transition (see `MixEngine.parkForPractice`).
+    ///
+    /// Uses the tracks already on the decks when both are loaded and `newPair` is false.
+    /// Otherwise it keeps the outgoing deck's track (unless `newPair`) and picks the rest from the
+    /// library: tracks within 6% of each other's tempo, preferring compatible keys.
+    func setUpPractice(newPair: Bool = false) {
+        let out = mix.outgoing, inc = mix.incoming
+        mix.stopAll()
+        if !newPair, mix.decks[out].grid != nil, mix.decks[inc].grid != nil {
+            mix.parkForPractice()
+            status = "Ready to practise: \(mix.decks[out].name) near its end, \(mix.decks[inc].name) at bar 1. Press Play all."
+            refresh()
+            return
+        }
+        let keep = newPair ? nil : loadedPaths[out].flatMap { p in library.tracks.first { $0.path == p } }
+        let avoid = Set(loadedPaths.compactMap { $0 })
+        guard let pair = Self.practicePair(from: library.tracks, keeping: keep, avoiding: newPair ? avoid : []) else {
+            status = library.tracks.isEmpty
+                ? "No tracks in the library yet. Choose your music folder in Settings → Library."
+                : "Couldn't find two analysed tracks with similar tempos. Load two tracks yourself and press Reset."
+            refresh()
+            return
+        }
+        status = "Loading a practice pair…"
+        var waiting = 0, ok = true
+        func finished(_ loaded: Bool) {
+            ok = ok && loaded
+            waiting -= 1
+            guard waiting == 0, ok else { return }
+            mix.parkForPractice()
+            status = "Practice pair ready: \(pair.0.title) near its end, \(pair.1.title) at bar 1. Press Play all."
+            refresh()
+        }
+        if loadedPaths[out] != pair.0.path { waiting += 1 }
+        if loadedPaths[inc] != pair.1.path { waiting += 1 }
+        if waiting == 0 { waiting = 1; finished(true); return }
+        if loadedPaths[out] != pair.0.path { load(pair.0.url, into: out, then: finished) }
+        if loadedPaths[inc] != pair.1.path { load(pair.1.url, into: inc, then: finished) }
+    }
+
+    /// Two tracks to practise a transition with: the first to mix out of, the second to bring in.
+    /// Both need a confident BPM and room for a few phrases; the tempos must be within 6%, and
+    /// compatible keys (Camelot neighbours) win. Picks at random among the good pairs, so
+    /// each new pair is different.
+    static func practicePair(from tracks: [LibraryTrack], keeping keep: LibraryTrack?,
+                             avoiding avoid: Set<String>) -> (LibraryTrack, LibraryTrack)? {
+        let usable = tracks.filter { t in
+            guard let bpm = t.bpm, bpm > 0 else { return false }
+            return (t.bpmConfidence ?? 1) >= 0.25 && t.duration >= 180 && !avoid.contains(t.path)
+        }
+        func partners(of a: LibraryTrack) -> [LibraryTrack] {
+            let matching = usable.filter { b in
+                b.path != a.path && abs(b.bpm! / a.bpm! - 1) <= 0.06
+                    && !(b.title == a.title && b.artist == a.artist)
+            }
+            func clash(_ b: LibraryTrack) -> Int {
+                guard let ka = a.key, let kb = b.key else { return 2 }
+                return MusicalKey.compatibility(ka, kb)
+            }
+            let best = matching.map(clash).min() ?? 2
+            return matching.filter { clash($0) == best }
+        }
+        // Keep the track already on the outgoing deck if it has a partner; otherwise start fresh.
+        if let keep, keep.bpm != nil, let b = partners(of: keep).randomElement() { return (keep, b) }
+        var fallback: (LibraryTrack, LibraryTrack)?
+        for a in usable.shuffled() {
+            let ps = partners(of: a)
+            guard let b = ps.randomElement() else { continue }
+            if let ka = a.key, let kb = b.key, MusicalKey.compatibility(ka, kb) == 0 { return (a, b) }
+            if fallback == nil { fallback = (a, b) }
+        }
+        return fallback
     }
 
     /// Where a double-clicked track goes: the outgoing deck if it's empty, otherwise the incoming one.
@@ -214,9 +308,31 @@ final class AppModel: ObservableObject {
 
     /// Moves one technique to a level, and remembers it. Phones follow on the next state broadcast.
     func setLevel(_ level: SkillLevel) {
+        guard progress.allows(level) else { return }
         mix.setLevel(level)
         UserDefaults.standard.set(mix.ladder.dictionary, forKey: SettingsKey.skillLadder)
         owners.removeAll()   // the controls on the phones change; nobody holds the new ones yet
+    }
+
+    // MARK: Skill progress
+
+    /// A handoff ended: show its scorecard, count it, and unlock what it earned.
+    private func record(_ r: HandoffReport) {
+        newUnlocks = progress.record(r)
+        lastReport = r
+        saveProgress()
+    }
+
+    /// For people who already DJ: every control, without the handoffs. Turning it off locks
+    /// again whatever hasn't been earned, and steps back down from a locked level.
+    func setUnlockEverything(_ on: Bool) {
+        progress.unlockEverything = on
+        saveProgress()
+        if !progress.allows(mix.ladder.timing) { setLevel(.snap) }
+    }
+
+    private func saveProgress() {
+        UserDefaults.standard.set(progress.dictionary, forKey: SettingsKey.skillProgress)
     }
 
     // MARK: Surfaces

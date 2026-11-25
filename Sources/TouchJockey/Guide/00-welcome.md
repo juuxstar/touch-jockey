@@ -9,7 +9,7 @@ Each chapter follows the same shape:
 - **The technique**: what DJs do and why it works.
 - **In Touch Jockey**: how to do it with the starter control.
 - **Practice**: a short exercise to try right away.
-- **Level up**: once it feels natural, switch to the real control in **Settings → Your skills**.
+- **Level up**: show you've got it, and the real control unlocks. After every handoff a **scorecard** shows what went well; clean handoffs unlock the next level in **Settings → Your skills**.
 
 > Nothing is cheating here. A crossfader is a shortcut for two volume faders, and SYNC replaced beatmatching by ear years ago. The skill is in your choices and your timing, and those stay yours from the first chapter.
 
