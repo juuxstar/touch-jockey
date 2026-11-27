@@ -274,6 +274,7 @@ public final class MixEngine {
                         let grid = analysis.grid
                         try self.decks[deckIndex].load(url: url, analysis: analysis, in: self.engine)
                         if deckIndex == self.incoming { self.incomingStartBeat = nil }
+                        self.plannedEntry = nil
                         self.applyGains()
                         completion(.success(grid))
                     } catch { completion(.failure(error)) }
@@ -300,16 +301,71 @@ public final class MixEngine {
     /// It starts from where it's parked: its paused position or cue point (bar 1 unless it was
     /// moved), on a whole beat so the beats line up. Park it on a bar and the bars line up too.
     public func cueIncoming(every beats: Double = 32) {
+        guard !decks[incoming].isPlaying, let (host, beat) = hostTime(ofNextBoundary: beats) else { return }
+        startIncoming(host: host, onBeat: beat)
+    }
+
+    /// Starts the incoming deck, synced, from where it's parked, at `host` (the outgoing deck's beat `beat`).
+    private func startIncoming(host: UInt64, onBeat beat: Double) {
         let inc = decks[incoming], out = decks[outgoing]
-        guard !inc.isPlaying, let outBPM = out.playingBPM, let inGrid = inc.grid,
-              let (host, beat) = hostTime(ofNextBoundary: beats) else { return }
+        guard !inc.isPlaying, let outBPM = out.playingBPM, let inGrid = inc.grid else { return }
         baseRatio = outBPM / inGrid.bpm
         phaseIntegral = 0
         inc.timePitch.rate = Float(baseRatio)
         inc.play(fromBeat: max(0, inc.parkedBeat.rounded()), atHostTime: host)
         inc.pausedBeat = nil
         incomingStartBeat = beat
+        plannedEntry = nil
         onChange?()
+    }
+
+    // MARK: Planned start (the line-up view)
+
+    /// Where the incoming track is planned to start: an outgoing-deck beat, set by dragging it
+    /// under the outgoing track in the line-up view. When the outgoing deck gets there, the
+    /// incoming track starts by itself, synced, from where it's parked. Starting it any other
+    /// way, loading a track, swapping roles or practice set-up drops the plan.
+    public private(set) var plannedEntry: Double?
+
+    /// The earliest beat a plan can use: the outgoing deck's next phrase line while it plays,
+    /// or, while it's stopped, where it's parked (then both start together, as Play all does).
+    public var earliestEntry: Double? {
+        let out = decks[outgoing]
+        guard out.grid != nil else { return nil }
+        if out.isPlaying { return (floor((out.currentBeat() ?? out.shownBeat) / 32) + 1) * 32 }
+        return out.parkedBeat
+    }
+
+    /// A sensible first plan: four phrases before the outgoing track ends, on a phrase line, or
+    /// the earliest beat if that has gone by.
+    public var suggestedEntry: Double? {
+        guard let g = decks[outgoing].grid, let earliest = earliestEntry else { return nil }
+        let end = g.beat(atSeconds: g.duration)
+        return max(earliest, max(0, floor((end - 128) / 32) * 32))
+    }
+
+    /// Plans the incoming track's start at the outgoing deck's beat `beat` (no earlier than
+    /// `earliestEntry`), or drops the plan with nil. Ignored while the incoming deck plays.
+    public func planIncoming(atBeat beat: Double?) {
+        guard let beat else {
+            if plannedEntry != nil { plannedEntry = nil; onChange?() }
+            return
+        }
+        guard let earliest = earliestEntry, decks[incoming].grid != nil, !decks[incoming].isPlaying else { return }
+        let b = max(beat, earliest)
+        if plannedEntry != b { plannedEntry = b; onChange?() }
+    }
+
+    /// Starts the incoming track as the outgoing deck nears the plan; drops a plan that was missed.
+    private func checkPlan() {
+        guard let p = plannedEntry else { return }
+        let out = decks[outgoing]
+        guard !decks[incoming].isPlaying, decks[incoming].grid != nil else { plannedEntry = nil; onChange?(); return }
+        guard out.isPlaying, let ob = out.currentBeat() else { return }
+        if ob >= p { plannedEntry = nil; onChange?(); return }
+        // Schedule it two beats ahead. The start lands closest to the beat with a short lead
+        // (measured: about 0.03 beats late per beat of lead), and the phase lock does the rest.
+        if p - ob <= 2, let host = hostTime(ofBeat: p) { startIncoming(host: host, onBeat: p) }
     }
 
     /// Play or resume one deck from where it was paused (bar 1 if stopped).
@@ -321,6 +377,7 @@ public final class MixEngine {
         let d = decks[i]
         guard d.grid != nil, !d.isPlaying else { return }
         let from = d.pausedBeat ?? d.cueBeat
+        if i == incoming { plannedEntry = nil }
         if i == incoming, syncOn, decks[outgoing].isPlaying, let outBPM = decks[outgoing].playingBPM, let g = d.grid,
            let (host, beat) = hostTime(ofNextBoundary: 1) {
             baseRatio = outBPM / g.bpm
@@ -352,6 +409,9 @@ public final class MixEngine {
             return
         }
         let outFrom = out.pausedBeat ?? out.cueBeat
+        // With a plan, only the outgoing deck starts; the incoming one comes in on the plan.
+        if let p = plannedEntry, p > outFrom + 0.01 { play(deck: outgoing); return }
+        plannedEntry = nil
         let inFrom = inc.pausedBeat ?? inc.cueBeat
         // Same fraction of a beat as the outgoing deck, so the two beat grids line up.
         let frac = outFrom - floor(outFrom)
@@ -491,6 +551,7 @@ public final class MixEngine {
     /// At the handoff level the mixer is bypassed and held neutral, so it's left alone.
     public func parkForPractice(phrasesLeft: Int = 4, mixerStart: PracticeMixerStart = .fader) {
         stopAll()
+        plannedEntry = nil
         if mixerMode {
             eq = [[.low: 0.5, .mid: 0.5, .high: 0.5], [.low: 0.5, .mid: 0.5, .high: 0.5]]
             switch mixerStart {
@@ -676,6 +737,7 @@ public final class MixEngine {
               mixerMode || !previewing.contains(incoming) else { return false }
         outgoing = incoming
         incomingStartBeat = nil
+        plannedEntry = nil
         phaseIntegral = 0
         finishScheduled = false
         if !mixerMode {
@@ -783,6 +845,7 @@ public final class MixEngine {
             if let g = old.grid { old.pausedBeat = min(timing.beat, g.beat(atSeconds: g.duration) - 1) }
             self.outgoing = self.incoming
             self.incomingStartBeat = nil
+            self.plannedEntry = nil
             // Lanes stay where they are: the new outgoing deck is now fully up.
             self.onChange?()
             if let report { self.onHandoffReport?(report) }
@@ -798,15 +861,19 @@ public final class MixEngine {
             if coach.active, !finishScheduled { coach.cancel() }
             return
         }
-        if ob >= g.beat(atSeconds: g.duration) {
-            // The old track has ended (its player runs on in silence): no new handoff starts.
-            if let r = coach.ranOut(atBeat: ob) { onHandoffReport?(r) }
-            return
-        }
         if !coach.active {
             // The incoming track has started (not just been scheduled to).
             guard let s = incomingStartBeat, ob >= s else { return }
             coach.begin(entryBeat: s, timing: ladder.timing)
+        }
+        let end = g.beat(atSeconds: g.duration)
+        if ob >= end {
+            // The old track has ended (its player runs on in silence), mid-blend or even before
+            // the new one came in (Next phrase waits for a phrase line past the end). Score it
+            // once: clearing the start beat stops a new handoff beginning on the next tick.
+            if let r = coach.ranOut(atBeat: ob, trackEndBeat: end) { onHandoffReport?(r) }
+            incomingStartBeat = nil
+            return
         }
         coachSample()
     }
@@ -836,6 +903,7 @@ public final class MixEngine {
     /// Call it regularly (the app calls it 30 times a second).
     public func syncTick(interval dt: Double) {
         if checkSoloSwap() { onChange?() }
+        checkPlan()
         coachTick()
         let inc = decks[incoming], out = decks[outgoing]
         guard syncOn, inc.isPlaying, out.isPlaying, incomingStartBeat == nil || (outgoingBeat() ?? 0) >= (incomingStartBeat ?? 0),
@@ -850,6 +918,16 @@ public final class MixEngine {
     }
 
     // MARK: Timing
+
+    /// Host time at which the outgoing deck reaches beat `target`, or nil if it's stopped or past it.
+    public func hostTime(ofBeat target: Double) -> UInt64? {
+        let out = decks[outgoing]
+        guard let g = out.grid, let p = out.position(), p.renderTime.isHostTimeValid else { return nil }
+        let beat = g.beat(atSeconds: p.seconds)
+        guard target > beat else { return nil }
+        let wallSeconds = (target - beat) * g.secondsPerBeat / Double(out.timePitch.rate)
+        return p.renderTime.hostTime + AVAudioTime.hostTime(forSeconds: wallSeconds)
+    }
 
     /// Host time and beat index of the outgoing deck's next multiple of `every` beats.
     public func hostTime(ofNextBoundary every: Double) -> (UInt64, Double)? {
@@ -885,6 +963,7 @@ public final class MixEngine {
 
     /// Current beat on the outgoing deck.
     public func outgoingBeat() -> Double? { decks[outgoing].currentBeat() }
+
 
     /// Runs a block on the timing thread `lead` seconds before `host` (see `heardTime`).
     /// Only touch thread-safe things in the block (node volumes); hop to main for state.

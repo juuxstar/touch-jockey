@@ -51,6 +51,11 @@ public struct HandoffCoach {
     /// The LOWS lane between these (as a fraction of the way over) means both basslines are clearly audible.
     static let overlapRange = 0.2...0.8
 
+    /// The checks' titles, in the order the report lists them.
+    public static let checkTitles = ["Came in on a phrase line", "Bass swap on a phrase line",
+                                     "Basslines together under a bar", "Blend over 8 bars or more",
+                                     "Finished before the track ran out"]
+
     public private(set) var active = false
     private var entryBeat = 0.0
     private var firstMoveBeat: Double?
@@ -109,12 +114,14 @@ public struct HandoffCoach {
         report(endBeat: beat, finished: true)
     }
 
-    /// The old track ended before the handoff finished, at beat `beat`.
-    public mutating func ranOut(atBeat beat: Double) -> HandoffReport? {
-        report(endBeat: beat, finished: false)
+    /// The old track ended before the handoff finished, noticed at beat `beat`. `trackEndBeat`
+    /// is where it ended, if known: at or before the entry means it was over before the new
+    /// track even came in.
+    public mutating func ranOut(atBeat beat: Double, trackEndBeat: Double? = nil) -> HandoffReport? {
+        report(endBeat: beat, finished: false, endedBeforeEntry: trackEndBeat.map { $0 <= entryBeat } ?? false)
     }
 
-    private mutating func report(endBeat: Double, finished: Bool) -> HandoffReport? {
+    private mutating func report(endBeat: Double, finished: Bool, endedBeforeEntry: Bool = false) -> HandoffReport? {
         guard active else { return nil }
         defer { self = HandoffCoach() }
         func phraseDistance(_ b: Double) -> Double { abs(b - (b / 32).rounded() * 32) }
@@ -124,7 +131,7 @@ public struct HandoffCoach {
 
         var checks: [HandoffReport.Check] = []
         let entryOK = phraseDistance(entryBeat) <= Self.phraseTolerance
-        checks.append(.init(title: "Came in on a phrase line", passed: entryOK,
+        checks.append(.init(title: Self.checkTitles[0], passed: entryOK,
                             detail: entryOK ? "Started on bar \(bar(entryBeat))."
                                             : "Started on bar \(bar(entryBeat)), in the middle of a phrase.",
                             advice: "Bring the new track in with Next phrase: it waits for the phrase line for you."))
@@ -134,7 +141,7 @@ public struct HandoffCoach {
             let barsOff = Int(((s - line) / 4).rounded())    // negative = early
             let off = barsOff == 0 ? "" : abs(barsOff) == 1 ? "a bar" : "\(abs(barsOff)) bars"
             let when = barsOff < 0 ? "early" : "late"
-            checks.append(.init(title: "Bass swap on a phrase line", passed: ok,
+            checks.append(.init(title: Self.checkTitles[1], passed: ok,
                                 detail: barsOff == 0 ? "Swapped on bar \(bar(s)), right on the phrase line."
                                       : ok ? "Swapped on bar \(bar(s)), \(off) \(when) for the phrase line at bar \(bar(line)). Close enough; right on the line sounds tightest."
                                       : "Swapped on bar \(bar(s)), \(off) \(when) for the phrase line at bar \(bar(line)).",
@@ -142,22 +149,25 @@ public struct HandoffCoach {
                                     ? "Count the bars along with the music and flick LOWS on the ONE of a new phrase, a touch early rather than late."
                                     : "Wait until the phrase bar on the deck is nearly full, then flick LOWS during the last bar: the snap lands it right on the phrase line."))
         } else {
-            checks.append(.init(title: "Bass swap on a phrase line", passed: false,
+            checks.append(.init(title: Self.checkTitles[1], passed: false,
                                 detail: "The bass never moved to the new track.",
                                 advice: "Move LOWS all the way to the new track, on a phrase line. That's the bass swap."))
         }
         let overlapOK = overlapBars < Self.maxBassOverlapBars
-        checks.append(.init(title: "Basslines together under a bar", passed: overlapOK,
+        checks.append(.init(title: Self.checkTitles[2], passed: overlapOK,
                             detail: String(format: "Both basslines played for %@.", Self.bars(overlapBars)),
                             advice: "Swap the bass in one move: flick LOWS instead of sliding it, so the two basslines never play over each other."))
         let blendOK = blendBars >= Self.minBlendBars
-        checks.append(.init(title: "Blend over 8 bars or more", passed: blendOK,
+        checks.append(.init(title: Self.checkTitles[3], passed: blendOK,
                             detail: String(format: "The blend took %@.", Self.bars(blendBars)),
                             advice: "Take your time: slide the highs, then the mids, across over a whole phrase (8 bars) or more before the bass swap."))
-        checks.append(.init(title: "Finished before the track ran out", passed: finished,
+        checks.append(.init(title: Self.checkTitles[4], passed: finished,
                             detail: finished ? "The old track stopped on the bar after the last lane arrived."
-                                             : "The old track ended in the middle of the blend.",
-                            advice: "Start sooner: bring the new track in at least four phrases before the old one ends. Go practice parks it there for you."))
+                                  : endedBeforeEntry ? "The old track had already ended when the new one came in."
+                                  : "The old track ended in the middle of the blend.",
+                            advice: endedBeforeEntry
+                                ? "Bring the new track in while the old one has a few phrases left. With less than a phrase to go, Next phrase waits for a line past its end."
+                                : "Start sooner: bring the new track in at least four phrases before the old one ends. Go practice parks it there for you."))
         // Advice only where it's needed.
         for i in checks.indices where checks[i].passed { checks[i].advice = nil }
         return HandoffReport(checks: checks, blendBars: blendBars, bassOverlapBars: overlapBars,

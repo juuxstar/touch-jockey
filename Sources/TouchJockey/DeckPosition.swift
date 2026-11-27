@@ -119,8 +119,8 @@ struct DeckPosition: View {
                 })
         }
         .frame(height: 30)
-        .tip(stopped ? "**Track overview**: the whole track, with the white line where the deck is.\n\nWhile the deck is stopped, **click or drag** here to move to another **phrase** (the faint lines). Drag the waveform above to fine-tune by the beat."
-                     : "**Track overview**: the whole track, with the white line where the deck is. Faint lines mark every 8-bar **phrase**.")
+        .tip(stopped ? "**Track overview**: the whole track, with the white line where the deck is.\n\nWhile the deck is stopped, **click or drag** here to move to another **phrase** (the lines). Drag the waveform above to fine-tune by the beat."
+                     : "**Track overview**: the whole track, with the white line where the deck is. The lines mark every 8-bar **phrase**.")
     }
 
     private func drawOverview(_ ctx: GraphicsContext, _ size: CGSize, _ n: Now) {
@@ -157,14 +157,16 @@ struct DeckPosition: View {
             ctx.fill(lowAhead, with: .color(color.opacity(0.9)))
         }
 
-        // A faint line at every phrase (32 beats).
+        // A line at every phrase (32 beats): light in a dark edge, so it shows over the
+        // bright waveform and over the dark background alike.
         var b = 0.0
         while true {
             let s = g.seconds(atBeat: b)
             if s > n.duration { break }
             if s >= 0 {
                 let px = CGFloat(s / n.duration) * size.width
-                ctx.fill(Path(CGRect(x: px - 0.5, y: 0, width: 1, height: size.height)), with: .color(.white.opacity(0.12)))
+                ctx.fill(Path(CGRect(x: px - 1.5, y: 0, width: 3, height: size.height)), with: .color(.black.opacity(0.55)))
+                ctx.fill(Path(CGRect(x: px - 0.5, y: 0, width: 1, height: size.height)), with: .color(.white.opacity(0.45)))
             }
             b += 32
         }

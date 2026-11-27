@@ -4,8 +4,12 @@ import TJCore
 /// Both decks on one scrolling, beat-aligned timeline, redrawn every frame.
 ///
 /// The playhead sits a third of the way in. Lines mark beats, bars and phrases
-/// (8 bars) of the outgoing track. The incoming track is drawn where it will
-/// play: at its scheduled start once cued, otherwise at the next phrase as a preview.
+/// (8 bars) of the outgoing track. Zoomed out (`beatsVisible`), it shows a whole blend:
+/// one track's outro over the other's intro.
+///
+/// The incoming track is drawn where it will play: as it plays, from its scheduled start
+/// once cued, as Play all will start it while both decks are stopped, or otherwise at the
+/// next phrase as a preview.
 struct DeckTimeline: View {
     let mix: MixEngine
     var beatsVisible: Double = 48
@@ -27,7 +31,10 @@ struct DeckTimeline: View {
                 .gesture(DragGesture(minimumDistance: 4)
                     .onChanged { g in jog(g, size: geo.size) }
                     .onEnded { _ in
-                        if let i = dragDeck { mix.seek(deck: i, toBeat: mix.decks[i].parkedBeat.rounded()) }
+                        if let i = dragDeck {
+                            let unit = snapBeats
+                            mix.seek(deck: i, toBeat: (mix.decks[i].parkedBeat / unit).rounded() * unit)
+                        }
                         dragDeck = nil
                     })
                 // Clicking cues the incoming track at the next phrase (when it isn't playing yet).
@@ -38,6 +45,9 @@ struct DeckTimeline: View {
             }
         }
     }
+
+    /// What a jog snaps to when let go: the beat close up, the bar at 32 bars, the phrase wider.
+    var snapBeats: Double { beatsVisible <= 48 ? 1 : beatsVisible <= 128 ? 4 : 32 }
 
     /// Dragging left moves the music left, so the deck moves later in the track (like sliding paper).
     private func jog(_ g: DragGesture.Value, size: CGSize) {
@@ -60,26 +70,34 @@ struct DeckTimeline: View {
         let laneH = (size.height - laneGap) / 2
 
         let outNow = out.shownBeat
-        // The outgoing beat that lines up with the incoming track's beat 0 (so incoming beat = outNow - offset).
-        // A playing deck's real position wins; a scheduled start counts from the beat it starts at,
-        // which isn't bar 1 when it resumes mid-track (PLAY, Play all).
-        let startBeat: Double = {
-            if inc.isPlaying, let ib = inc.currentBeat() { return outNow - ib }
-            if let s = mix.incomingStartBeat { return s - (inc.isPlaying ? inc.startedFromBeat : 0) }
-            return (floor(outNow / 32) + 1) * 32          // preview: next phrase
-        }()
-        // Where the incoming track comes in: its scheduled start, or the preview phrase.
-        let entryBeat = mix.incomingStartBeat ?? startBeat
-        // A stopped incoming deck that has been jogged shows where it sits, at the playhead.
-        let incParked = inc.isParkedAway && mix.incomingStartBeat == nil
-        let incNow = incParked ? inc.parkedBeat : outNow - startBeat
         let incPreview = !inc.isPlaying
+        // The incoming beat it plays from: where it started, or where it's parked (as Next phrase
+        // and Play all will start it).
+        let incFrom = inc.isPlaying ? inc.startedFromBeat : max(0, inc.parkedBeat.rounded())
+        // Where it comes in (the outgoing beat it starts on) and the outgoing beat that lines up
+        // with its beat 0 (so incoming beat = outgoing beat − startBeat). A stopped track is always
+        // drawn as it will play, so what you see is what you get:
+        // - playing: where it really is; scheduled: from its start;
+        // - both stopped: as Play all starts them, together, each from where it's parked;
+        // - planned in the line-up view: from where it's parked, on the plan;
+        // - otherwise: as Next phrase would start it, from where it's parked, on the next phrase.
+        let (entryBeat, startBeat): (Double, Double) = {
+            if let s = mix.incomingStartBeat, inc.isPlaying, (out.heardBeat() ?? outNow) < s { return (s, s - incFrom) }
+            if inc.isPlaying, let ib = inc.currentBeat() { return (mix.incomingStartBeat ?? outNow - ib + incFrom, outNow - ib) }
+            if let p = mix.plannedEntry { return (p, p - incFrom) }   // planned in the line-up view
+            if !out.isPlaying { return (outNow, outNow - inc.parkedBeat) }
+            let next = (floor(outNow / 32) + 1) * 32
+            return (next, next - incFrom)
+        }()
+        let incNow = outNow - startBeat
 
         // Beat, bar and phrase lines across both lanes.
         let first = Int(floor(outNow - Double(playX / ppb))), last = Int(ceil(outNow + Double((size.width - playX) / ppb)))
         for b in first...last {
             let x = playX + CGFloat(Double(b) - outNow) * ppb
             let phrase = b % 32 == 0, bar = b % 4 == 0
+            // Zoomed out, leave out lines that would be closer than a few pixels.
+            if !phrase, ppb * (bar ? 4 : 1) < 5 { continue }
             let w: CGFloat = phrase ? 2 : 1
             let alpha = phrase ? 0.45 : bar ? 0.24 : 0.08
             ctx.fill(Path(CGRect(x: x - w / 2, y: 0, width: w, height: size.height)), with: .color(.white.opacity(alpha)))
@@ -96,17 +114,24 @@ struct DeckTimeline: View {
         let incTop = laneRect(mix.incoming).minY
         lane(ctx, deck: out, color: TJ.deck(mix.outgoing), now: outNow,
              rect: laneRect(mix.outgoing), ppb: ppb, playX: playX, dim: false)
+        // A stopped track is drawn only from where it will start: what comes before won't play.
         lane(ctx, deck: inc, color: TJ.deck(mix.incoming), now: incNow,
-             rect: laneRect(mix.incoming), ppb: ppb, playX: playX, dim: incPreview)
+             rect: laneRect(mix.incoming), ppb: ppb, playX: playX, dim: incPreview,
+             from: incPreview ? incFrom : nil)
 
         // Where the incoming track starts.
-        if inc.grid != nil, !incParked {
+        if inc.grid != nil {
             let x = playX + CGFloat(entryBeat - outNow) * ppb
             if x > 0, x < size.width {
                 var line = Path()
                 line.move(to: CGPoint(x: x, y: incTop))
                 line.addLine(to: CGPoint(x: x, y: incTop + laneH))
-                if incPreview {
+                if incPreview, mix.plannedEntry != nil {
+                    // Planned in the line-up view: it will start here by itself.
+                    ctx.stroke(line, with: .color(TJ.gold), lineWidth: 2)
+                    ctx.draw(Text("\(inc.name) STARTS HERE BY ITSELF (PLANNED)").font(.tj(9.5, weight: .heavy)).foregroundColor(TJ.gold),
+                             at: CGPoint(x: x + 5, y: incTop + 3), anchor: .topLeading)
+                } else if incPreview {
                     // Not scheduled: a dashed preview of the next phrase, which moves on as the music plays.
                     ctx.stroke(line, with: .color(TJ.gold.opacity(0.6)), style: StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
                     if mix.decks[mix.outgoing].isPlaying {
@@ -127,7 +152,7 @@ struct DeckTimeline: View {
     }
 
     private func lane(_ ctx: GraphicsContext, deck: Deck, color: Color, now: Double,
-                      rect: CGRect, ppb: CGFloat, playX: CGFloat, dim: Bool) {
+                      rect: CGRect, ppb: CGFloat, playX: CGFloat, dim: Bool, from: Double? = nil) {
         ctx.fill(Path(roundedRect: rect, cornerRadius: 6), with: .color(.black.opacity(0.35)))
         guard let g = deck.grid, let wf = deck.waveform else {
             ctx.draw(Text("Deck \(deck.name): load a track").font(.tj(12)).foregroundColor(TJ.mute),
@@ -143,7 +168,7 @@ struct DeckTimeline: View {
         while x < rect.maxX {
             let beat = now + Double(x - playX) / Double(ppb)
             let s = g.seconds(atBeat: beat)
-            if s >= 0, s < g.duration {
+            if s >= 0, s < g.duration, beat >= (from ?? -.infinity) {
                 let lv = wf.bands(from: s, to: s + secondsPerPixel * Double(step))
                 let hf = CGFloat(lv.full) * half, hl = CGFloat(lv.low) * half
                 let column = CGRect(x: x, y: mid - hf, width: step - 0.5, height: hf * 2)

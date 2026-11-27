@@ -28,9 +28,26 @@ check("bass swap off phrase", !r.checks[1].passed)
 check("overlap about 3 bars (\(r.bassOverlapBars))", abs(r.bassOverlapBars - 3) < 0.1)
 check("blend short", !r.checks[3].passed)
 
+check("the report lists the titles the loader shows", r.checks.map(\.title) == HandoffCoach.checkTitles)
+var live = HandoffCoach()
+check("not scoring before a handoff", !live.active)
+live.begin(entryBeat: 0, timing: .snap)
+check("scoring while it runs", live.active)
+_ = live.finish(atBeat: 40)
+check("not scoring once the scorecard is out", !live.active)
+
 print("ran out")
 r = run(.snap, entry: 320, { b in [.high: ramp(b, 336, 352), .mid: 0, .low: 0] }, until: 400, ranOut: true)
 check("not finished, no bass swap", !r.checks[4].passed && !r.checks[1].passed && !r.clean)
+
+print("old track over before the new one came in")
+var late = HandoffCoach(); late.begin(entryBeat: 320, timing: .snap)
+r = late.ranOut(atBeat: 321, trackEndBeat: 300)!
+check("not finished", !r.checks[4].passed)
+check("says it had already ended", r.checks[4].detail.contains("already ended"))
+check("advice about starting sooner", r.checks[4].advice?.contains("few phrases left") == true)
+var mid = HandoffCoach(); mid.begin(entryBeat: 256, timing: .snap)
+check("mid-blend run-out keeps its own wording", mid.ranOut(atBeat: 301, trackEndBeat: 300)!.checks[4].detail.contains("middle of the blend"))
 
 print("free timing offset")
 r = run(.free, entry: 320, { b in [.high: ramp(b, 330, 350), .mid: ramp(b, 330, 350), .low: b >= 384.05 ? 1 : 0] }, until: 388)

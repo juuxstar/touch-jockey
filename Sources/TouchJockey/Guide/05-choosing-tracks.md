@@ -12,6 +12,7 @@ A smooth transition starts before you touch a control: with the right next track
 
 - The **dot** next to each track in the library compares its tempo with the track playing now: **green** within 3%, **gold** within 6%, **red** further off.
 - A **?** after a BPM means the beat was hard to detect. Sync may drift with that track, so pick something else while you're learning.
+- **Cue a match**, on the incoming deck, loads a track from your library that suits the one playing: a tempo within 6%, and a key that blends when there is one. It lands at bar 1, ready for **Next phrase**. Press it again for another. It's a quick way to find candidates, but listen before you bring one in: it can't judge the energy.
 - **Recent** lists the tracks you loaded lately, which is handy for building a set from your favourites.
 
 ## Practice

@@ -14,6 +14,10 @@ enum SettingsKey {
     static let keepAwake = "keepAwakeWhilePlaying"
     /// The learning ladder, as `SkillLadder.dictionary` (`{"blend": "handoff", …}`).
     static let skillLadder = "skillLadder"
+    /// How many bars the timeline shows: 12, 32, 64 or 128.
+    static let timelineBars = "timelineBars"
+    /// Whether the timeline panel shows the line-up view instead of the scrolling timeline.
+    static let timelineLineUp = "timelineLineUp"
     /// Clean handoffs and unlocks, as `SkillProgress.dictionary`.
     static let skillProgress = "skillProgress"
     /// Output devices, by Core Audio UID: the speakers (absent = the system default) and the

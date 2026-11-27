@@ -31,6 +31,16 @@ In a set, a handoff plays the old track's **outro** over the new track's **intro
 
 **Go practice** sets this up for you. It uses the two tracks on the decks, or picks two from your library with similar tempos and keys that blend. It parks the track you mix out of four phrases before its end, puts the other at bar 1, and both land on phrase lines, so they start in phrase. Press **Play all** and do the handoff.
 
+### Lining up the next track yourself
+
+Press **LINE UP** at the top right of the timeline. It shows both whole tracks, one above the other: anything stacked vertically plays at the same moment.
+
+1. **Drag the waiting track** left or right under the playing one. It snaps to phrase lines, and the gold label says where it starts: "B STARTS ON A'S BAR 97".
+2. Put its **intro** under the playing track's **outro**, so its bass comes in as the other's goes.
+3. Play. When the playing track reaches that bar, the waiting track **starts by itself**, in sync and silent, ready for the lanes.
+
+To start from a different part of the waiting track, click its deck's overview first. **Next phrase** still starts it straight away instead.
+
 The practice bar has two more buttons:
 
 - **Reset**: after a run, sets the tracks up again for the next one (the other way round, if the handoff swapped them), with the lanes back on the outgoing deck. At the mixer level it resets the mixer too.

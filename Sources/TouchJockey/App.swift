@@ -237,7 +237,8 @@ struct ContentView: View {
             HStack(alignment: .top, spacing: 10) {
                 // The library gives up width (its text columns narrow) so the scorecard always fits.
                 LibraryView().frame(minWidth: 0, maxWidth: .infinity)
-                if let r = m.lastReport { scorecard(r).frame(width: 340).layoutPriority(1) }
+                if m.scoring { scoringCard.frame(width: 340).layoutPriority(1) }
+                else if let r = m.lastReport { scorecard(r).frame(width: 340).layoutPriority(1) }
             }
             .frame(minHeight: 170, maxHeight: .infinity)
             if let ch = m.practiceChapter { practiceBar(ch) }
@@ -261,6 +262,82 @@ struct ContentView: View {
         .overlay(TooltipLayer())
     }
 
+    @AppStorage(SettingsKey.timelineBars) private var timelineBars = 12
+    @AppStorage(SettingsKey.timelineLineUp) private var lineUp = false
+
+    /// A row of small segment buttons, as on the timeline's corner.
+    private func segment(_ title: String, on: Bool, minWidth: CGFloat = 26, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(.tj(10.5, weight: .heavy)).monospacedDigit()
+                .foregroundColor(on ? .black : TJ.sky)
+                .frame(minWidth: minWidth).padding(.vertical, 3).padding(.horizontal, 4)
+                .background(RoundedRectangle(cornerRadius: 5).fill(on ? TJ.sky : Color.black.opacity(0.55)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func segmentGroup<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+        HStack(spacing: 2, content: content)
+            .padding(3)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Color.black.opacity(0.45)))
+    }
+
+    /// Timeline or line-up view.
+    var timelineMode: some View {
+        segmentGroup {
+            segment("TIMELINE", on: !lineUp) { lineUp = false }
+                .tip("**Timeline**: both tracks scrolling past the white line, beat for beat, as they play.")
+            segment("LINE UP", on: lineUp) { lineUp = true }
+                .tip("**Line up**: both whole tracks, one above the other. **Drag the waiting track** under the playing one to choose where it comes in; it then starts there by itself.")
+        }
+    }
+
+    /// The timeline's zoom: how many bars it shows.
+    var timelineZoom: some View {
+        segmentGroup {
+            ForEach([12, 32, 64, 128], id: \.self) { n in
+                segment("\(n)", on: timelineBars == n) { timelineBars = n }
+            }
+            Text("BARS").font(.tj(9.5, weight: .heavy)).tracking(1).foregroundColor(TJ.sky).padding(.leading, 3)
+        }
+        .tip("**Zoom**: how many bars the timeline shows. Zoom out to **64** or **128** to see a whole blend: the new track's intro and bass against the playing track's outro.")
+    }
+
+    static let timelineHelp = """
+                            **Timeline**: both tracks lined up beat for beat.
+
+                            **The white line** is now; the music scrolls past it.
+
+                            **Lines**: faint for **beats**, brighter for **bars** (4 beats), labelled for **phrases** (8 bars). Dance tracks change on phrases, so that's where to start a transition.
+
+                            **The gold line** marks where the incoming track starts. **Dashed** means it isn't cued yet: it shows where **Next phrase** would start it (on the next phrase line), or **Play all** with both decks stopped (at the white line). **Click the timeline** (or press **Next phrase**) to start it there.
+
+                            **A stopped track** is drawn as it will play, starting at the gold line; what comes before its start spot isn't drawn, because it won't play. **Drag its waveform** to choose which part starts on the line.
+
+                            **Colour**: bright for the **bass**, the lighter outline for everything else.
+
+                            **Zoom**: **12 bars** to see the beats; **32**, **64** or **128** to see a whole blend, one track's outro over the other's intro. With both decks stopped, the tracks line up as **Play all** will start them, so you can see where the new track's intro and bass fall before you press it.
+
+                            **Jog**: drag a **stopped** deck's waveform left or right to move through it. When you let go it snaps to the nearest **beat** at 12 bars, the nearest **bar** at 32, and the nearest **phrase** at 64 or 128. Press **CUE** there to make it the cue point, or **PLAY** to start from there. A playing deck can't be dragged, so it never slips out of sync.
+
+                            **Line up**: switch to it to drag the waiting track under the playing one and plan where it comes in. A planned start shows here as a solid gold line.
+                            """
+
+    static let lineUpHelp = """
+        **Line up**: both whole tracks, one above the other, on the playing track's bars. Anything stacked vertically plays at the same moment.
+
+        **Drag the waiting track** left or right to choose the bar it starts on; it snaps to phrase lines. The gold line and its label say where. When the playing track gets there, the waiting track **starts by itself**, synced, from its start spot. Until you drag it, a dimmed suggestion shows four phrases before the end.
+
+        Line its **intro** up under the playing track's **outro**, so its bass comes in as the other's goes.
+
+        **Which part of it starts**: click the waiting deck's overview to choose. The line-up redraws from there.
+
+        **Both decks stopped**: drag the playing track's lane to move where it starts, then press **Play all**. It starts that track, and the other comes in where you put it.
+
+        **Next phrase** or **Next bar** still start it straight away, and drop the plan. So does **Clear**.
+        """
+
     var mainColumn: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 10) {
@@ -268,29 +345,60 @@ struct ContentView: View {
                 deckCard(1)
             }
             Panel(color: TJ.sky) {
-                DeckTimeline(mix: m.mix).frame(height: 116)   // two compact lanes; the rest of the window goes to the mixer and library
-                    .overlay(alignment: .topTrailing) {
-                        InfoTip("""
-                            **Timeline**: both tracks lined up beat for beat.
-
-                            **The white line** is now; the music scrolls past it.
-
-                            **Lines**: faint for **beats**, brighter for **bars** (4 beats), labelled for **phrases** (8 bars). Dance tracks change on phrases, so that's where to start a transition.
-
-                            **The gold line** marks where the incoming track starts. **Dashed** means it isn't cued yet: it only shows the next phrase. **Click the timeline** (or press **Next phrase**) to start it there.
-
-                            **Colour**: bright for the **bass**, the lighter outline for everything else.
-
-                            **Jog**: drag a **stopped** deck's waveform left or right to move through it; it snaps to the nearest beat when you let go. Press **CUE** there to make it the cue point, or **PLAY** to start from there. A playing deck can't be dragged, so it never slips out of sync.
-                            """)
-                            .padding(6)
+                Group {
+                    if lineUp { LineUpView(mix: m.mix) }
+                    else { DeckTimeline(mix: m.mix, beatsVisible: Double(timelineBars * 4)) }
+                }
+                .frame(height: 116)   // two compact lanes; the rest of the window goes to the mixer and library
+                .overlay(alignment: .topTrailing) {
+                    HStack(spacing: 6) {
+                        if lineUp, m.plannedEntry != nil {
+                            segment("CLEAR", on: false) { m.mix.planIncoming(atBeat: nil) }
+                                .tip("**Clear**: drop the plan. The waiting track then waits for **Next phrase** or **Next bar** again.")
+                        }
+                        timelineMode
+                        if !lineUp { timelineZoom }
+                        InfoTip(lineUp ? Self.lineUpHelp : Self.timelineHelp)
                     }
+                    .padding(6)
+                }
             }
             // Mixer panel (phone connection lives in Settings now).
             HStack(alignment: .top, spacing: 10) {
                 MixerPanel()
             }
             .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// While a handoff is under way: where its scorecard will go, with the checks it is
+    /// being scored on pulsing in turn.
+    var scoringCard: some View {
+        Panel(color: TJ.sky, fillHeight: true) {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small).tint(TJ.sky)
+                Text("Scoring this handoff").font(.tj(11, weight: .heavy)).tracking(1).textCase(.uppercase)
+                    .foregroundColor(TJ.sky).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            TimelineView(.animation(minimumInterval: 1.0 / 20)) { t in
+                let phase = t.date.timeIntervalSinceReferenceDate
+                VStack(alignment: .leading, spacing: 9) {
+                    ForEach(Array(HandoffCoach.checkTitles.enumerated()), id: \.offset) { k, title in
+                        // A pulse that runs down the list, one check after another.
+                        let wave = 0.5 + 0.5 * cos((phase * 1.6 - Double(k) * 0.55) * .pi)
+                        HStack(spacing: 8) {
+                            Circle().fill(TJ.sky.opacity(0.25 + 0.75 * wave)).frame(width: 9, height: 9)
+                                .scaleEffect(0.8 + 0.3 * wave)
+                            Text(title).font(.tj(12.5, weight: .semibold))
+                                .foregroundColor(Color.white.opacity(0.45 + 0.4 * wave))
+                        }
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+            Text("Your scorecard appears when every lane reaches the new track and the old one stops.")
+                .font(.tj(11.5)).foregroundColor(TJ.mute).fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -453,6 +561,11 @@ struct ContentView: View {
             }
             DeckPosition(mix: m.mix, deck: i, color: TJ.deck(i))
             HStack {
+                if !isOut {
+                    Button { m.cueMatch() } label: { Label("Cue a match", systemImage: "wand.and.stars") }
+                        .disabled(!m.canCueMatch).tjButton(TJ.deck(i))
+                        .tip("**Cue a match**: load a track from your library that blends with the outgoing one: a tempo within 6%, and a key that sits next to it on the Camelot wheel when there is one.\n\nIt goes on this deck at bar 1, ready for **Next phrase**. Press again for a different one; each press replaces the track on this deck.")
+                }
                 if d.loading {
                     Text("Analysing…").font(.tj(12, weight: .semibold)).foregroundColor(TJ.gold)
                 }

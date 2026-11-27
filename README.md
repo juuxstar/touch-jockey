@@ -17,6 +17,7 @@ Working:
 - Beat analysis on load (BPM and first downbeat), under a second per track.
 - Two decks: sync with key lock, and a phase lock that keeps the beats aligned within a millisecond.
 - The incoming track starts on the outgoing track's next bar or phrase.
+- **Cue a match** on the incoming deck loads a library track that suits the outgoing one (tempo within 6%, the best Camelot key match there is, no other version of the same song) at bar 1. Each press offers a different one.
 - Three-band handoff with 24 dB/octave crossovers at 200 Hz and 2.5 kHz and equal-power lanes.
 - Flick to swap a band on the next bar. When every lane reaches the incoming side, the handoff finishes on the next bar and the decks swap roles. A deck playing on its own is always the outgoing deck (at the handoff level the lanes follow it), so the start buttons sit on the deck that is waiting.
 - A learning ladder (Settings → Your skills): blend with the handoff lanes or the full mixer, and Flick snapped to the bar or free. See [Learning ladder](#learning-ladder).
@@ -34,6 +35,8 @@ Working:
   - load tracks
   - start, cue and stop
   - Play all (or **Space**): both decks start together, beats lined up
+  - a **line-up** view: both whole tracks stacked; drag the waiting track under the playing one to plan the bar it comes in on (snapped to phrases), and the engine starts it there by itself (`MixEngine.plannedEntry`)
+  - a shared timeline of both decks that zooms from 12 to 128 bars, so a whole blend fits; with both decks stopped it lines them up as Play all will start them, and a dragged deck snaps to the beat, bar or phrase depending on the zoom
   - a blend panel: at the handoff level the phone's lanes (with mouse sliders and Flick, shown read-only while a phone is connected), Back to and Stop all; at the mixer level two channel strips (EQ and volume fader) and a crossfader
   - a status-line indicator of connected phones; click it for the QR code
   - opens full screen on the laptop's built-in display

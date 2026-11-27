@@ -246,5 +246,67 @@ check("a CUE preview doesn't take over", mix.outgoing == co && mix.previewing.co
 mix.cueUp(deck: mix.incoming)
 mix.stopAll()
 
+print("\nscoring when the old track ends before the new one comes in")
+var lateReports: [HandoffReport] = []
+mix.onHandoffReport = { lateReports.append($0) }
+let ticker = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { _ in mix.syncTick(interval: 1.0 / 30) }
+mix.setLevel(.handoff)
+mix.parkForPractice()
+let lo = mix.outgoing, lend = mix.decks[lo].grid!.beat(atSeconds: mix.decks[lo].grid!.duration)
+mix.seek(deck: lo, toBeat: floor(lend) - 6)
+mix.play(deck: lo); wait(0.5)
+mix.cueIncoming(every: 32)
+check("Next phrase lands past the old track's end", (mix.incomingStartBeat ?? 0) >= lend)
+var lw = 0.0
+while lw < 30, lateReports.isEmpty { wait(0.2); lw += 0.2 }
+check("a scorecard comes once the new track starts", lateReports.count == 1)
+check("it says the old track had already ended", lateReports.first?.checks[4].detail.contains("already ended") == true)
+wait(1.5)
+check("only one scorecard", lateReports.count == 1)
+ticker.invalidate()
+mix.stopAll()
+
+print("\nplanned start (line-up view): the incoming track starts by itself")
+let planTicker = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { _ in mix.syncTick(interval: 1.0 / 30) }
+mix.setLevel(.handoff)
+mix.parkForPractice()
+let po2 = mix.decks[mix.outgoing], pi2 = mix.decks[mix.incoming]
+let pFrom = po2.parkedBeat
+check("no plan after practice set-up", mix.plannedEntry == nil)
+check("suggestion is four phrases before the end", mix.suggestedEntry == pFrom)
+mix.planIncoming(atBeat: pFrom - 64)
+check("a plan can't be before the outgoing deck's start", mix.plannedEntry == pFrom)
+mix.planIncoming(atBeat: pFrom + 8)
+check("plan set", mix.plannedEntry == pFrom + 8)
+mix.playAll()
+check("Play all with a plan starts only the outgoing deck", po2.isPlaying && !pi2.isPlaying)
+var pw = 0.0
+while pw < 12, !pi2.isPlaying { wait(0.1); pw += 0.1 }
+check("the incoming track started by itself", pi2.isPlaying)
+check("on the planned beat", mix.incomingStartBeat == pFrom + 8)
+check("plan used up", mix.plannedEntry == nil)
+// It's scheduled up to two bars ahead: wait until it's actually sounding.
+var sw = 0.0
+while sw < 8, pi2.currentBeat() == nil { wait(0.1); sw += 0.1 }
+wait(4)   // the phase lock settles in about 3 s, as after Next phrase
+if let ob = po2.heardBeat(), let ib = pi2.heardBeat() {
+    print(String(format: "   heard: outgoing beat %.2f, incoming beat %.2f, phase error %.3f", ob, ib, mix.phaseError))
+    check("lined up: incoming bar 1 on the planned beat", abs((ob - ib) - (pFrom + 8)) < 0.06)
+} else { check("both playing", false) }
+mix.stopAll()
+mix.parkForPractice()
+mix.play(deck: mix.outgoing); wait(0.5)
+mix.planIncoming(atBeat: (mix.earliestEntry ?? 0) + 64)
+check("a plan while playing", mix.plannedEntry != nil)
+mix.cueIncoming(every: 4)
+check("Next bar drops the plan", mix.plannedEntry == nil)
+mix.stopAll()
+mix.parkForPractice()
+mix.planIncoming(atBeat: mix.decks[mix.outgoing].parkedBeat)
+mix.playAll()
+check("a plan on the outgoing deck's start: Play all starts both together", mix.decks[0].isPlaying && mix.decks[1].isPlaying && mix.plannedEntry == nil)
+planTicker.invalidate()
+mix.stopAll()
+
 print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

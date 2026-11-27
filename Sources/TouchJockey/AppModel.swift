@@ -63,6 +63,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var progress = SkillProgress()
     /// The last handoff's scorecard, shown until dismissed or replaced by the next one.
     @Published var lastReport: HandoffReport?
+    /// A handoff is under way and being scored; its scorecard comes when it finishes.
+    @Published var scoring = false
+    /// Where the incoming track is planned to start (an outgoing beat), set in the line-up view.
+    @Published var plannedEntry: Double?
     /// What that handoff unlocked, if anything.
     @Published var newUnlocks: [SkillProgress.Unlock] = []
     @Published var beat: Double?
@@ -225,27 +229,47 @@ final class AppModel: ObservableObject {
         if loadedPaths[inc] != pair.1.path { load(pair.1.url, into: inc, then: finished) }
     }
 
+    /// Library tracks good enough to mix with: a confident BPM and at least three minutes long
+    /// (long enough for a few phrases, and no radio liners).
+    static func usableTracks(_ tracks: [LibraryTrack], avoiding avoid: Set<String>) -> [LibraryTrack] {
+        tracks.filter { t in
+            guard let bpm = t.bpm, bpm > 0 else { return false }
+            return (t.bpmConfidence ?? 1) >= 0.25 && t.duration >= 180 && !avoid.contains(t.path)
+        }
+    }
+
+    /// The tracks in `usable` that blend with a track of tempo `bpm` and Camelot `key`: tempo
+    /// within 6%, and the best key match there is (same key or a Camelot neighbour first).
+    /// Leaves out the track itself and other versions of the same song (remixes, edits).
+    static func partners(bpm: Double, key: String?, title: String, artist: String, path: String?,
+                         in usable: [LibraryTrack]) -> [LibraryTrack] {
+        let song = songName(title)
+        let matching = usable.filter { b in
+            b.path != path && abs(b.bpm! / bpm - 1) <= 0.06 && !(songName(b.title) == song && b.artist == artist)
+        }
+        func clash(_ b: LibraryTrack) -> Int {
+            guard let key, let kb = b.key else { return 2 }
+            return MusicalKey.compatibility(key, kb)
+        }
+        let best = matching.map(clash).min() ?? 2
+        return matching.filter { clash($0) == best }
+    }
+
+    /// A title without its version: "Titanium (Alesso remix)" → "titanium".
+    static func songName(_ title: String) -> String {
+        let cut = title.firstIndex { $0 == "(" || $0 == "[" } ?? title.endIndex
+        return title[..<cut].trimmingCharacters(in: .whitespaces).lowercased()
+    }
+
     /// Two tracks to practise a transition with: the first to mix out of, the second to bring in.
     /// Both need a confident BPM and room for a few phrases; the tempos must be within 6%, and
     /// compatible keys (Camelot neighbours) win. Picks at random among the good pairs, so
     /// each new pair is different.
     static func practicePair(from tracks: [LibraryTrack], keeping keep: LibraryTrack?,
                              avoiding avoid: Set<String>) -> (LibraryTrack, LibraryTrack)? {
-        let usable = tracks.filter { t in
-            guard let bpm = t.bpm, bpm > 0 else { return false }
-            return (t.bpmConfidence ?? 1) >= 0.25 && t.duration >= 180 && !avoid.contains(t.path)
-        }
+        let usable = usableTracks(tracks, avoiding: avoid)
         func partners(of a: LibraryTrack) -> [LibraryTrack] {
-            let matching = usable.filter { b in
-                b.path != a.path && abs(b.bpm! / a.bpm! - 1) <= 0.06
-                    && !(b.title == a.title && b.artist == a.artist)
-            }
-            func clash(_ b: LibraryTrack) -> Int {
-                guard let ka = a.key, let kb = b.key else { return 2 }
-                return MusicalKey.compatibility(ka, kb)
-            }
-            let best = matching.map(clash).min() ?? 2
-            return matching.filter { clash($0) == best }
+            Self.partners(bpm: a.bpm!, key: a.key, title: a.title, artist: a.artist, path: a.path, in: usable)
         }
         // Keep the track already on the outgoing deck if it has a partner; otherwise start fresh.
         if let keep, keep.bpm != nil, let b = partners(of: keep).randomElement() { return (keep, b) }
@@ -259,6 +283,50 @@ final class AppModel: ObservableObject {
         return fallback
     }
 
+    // MARK: Next track
+
+    /// Tracks already offered as a match for the outgoing track, so pressing again brings a different one.
+    private var offeredMatches: (forPath: String?, paths: Set<String>) = (nil, [])
+
+    /// Whether the incoming deck can take a match now: the outgoing deck has a track, and the
+    /// incoming deck isn't playing or loading.
+    var canCueMatch: Bool {
+        let inc = mix.incoming
+        return mix.decks[mix.outgoing].grid != nil && !mix.decks[inc].isPlaying && !decks[inc].loading
+    }
+
+    /// Loads a library track that blends with the outgoing one into the incoming deck, at bar 1,
+    /// ready for Next phrase. Pressing again offers another, until they run out and it starts over.
+    func cueMatch() {
+        guard canCueMatch else { return }
+        let out = mix.outgoing, inc = mix.incoming
+        let d = mix.decks[out]
+        guard let bpm = d.grid?.bpm else { return }
+        let outPath = loadedPaths[out]
+        if offeredMatches.forPath != outPath { offeredMatches = (outPath, []) }
+        let onDecks = Set(loadedPaths.compactMap { $0 })
+        func candidates() -> [LibraryTrack] {
+            Self.partners(bpm: bpm, key: d.key, title: d.title, artist: d.artist, path: outPath,
+                          in: Self.usableTracks(library.tracks, avoiding: onDecks.union(offeredMatches.paths)))
+        }
+        var pool = candidates()
+        if pool.isEmpty, !offeredMatches.paths.isEmpty { offeredMatches.paths = []; pool = candidates() }
+        guard let pick = pool.randomElement() else {
+            status = "No track in your library is within 6% of \(d.title)'s tempo. Pick one from the library yourself."
+            return
+        }
+        offeredMatches.paths.insert(pick.path)
+        let keyNote: String
+        if let ka = d.key, let kb = pick.key {
+            keyNote = ["blends with", "two steps from", "clashes with"][MusicalKey.compatibility(ka, kb)] + " \(ka)"
+        } else { keyNote = "key unknown" }
+        load(pick.url, into: inc) { [weak self] ok in
+            guard let self, ok else { return }
+            self.status = String(format: "Deck %@: %@, %.1f BPM, key %@ (%@). Press Next phrase to bring it in.",
+                                 self.mix.decks[inc].name, pick.title, pick.bpm ?? 0, pick.key ?? "?", keyNote)
+        }
+    }
+
     /// Where a double-clicked track goes: the outgoing deck if it's empty, otherwise the incoming one.
     var incomingForLoading: Int { mix.decks[mix.outgoing].grid == nil ? mix.outgoing : mix.incoming }
 
@@ -270,7 +338,14 @@ final class AppModel: ObservableObject {
     func cueDown(_ i: Int) { mix.cueDown(deck: i) }
     func cueUp(_ i: Int) { mix.cueUp(deck: i) }
     func toggleSync() { mix.setSync(!mix.syncOn); syncOn = mix.syncOn }
-    func cueIncoming(every beats: Double) { mix.cueIncoming(every: beats) }
+    func cueIncoming(every beats: Double) {
+        mix.cueIncoming(every: beats)
+        // Past the old track's end, the new one starts after silence: nothing to blend with.
+        let out = mix.decks[mix.outgoing]
+        if let s = mix.incomingStartBeat, let g = out.grid, s >= g.beat(atSeconds: g.duration) {
+            status = "Deck \(out.name) ends before that \(beats >= 32 ? "phrase" : "bar") line, so there's nothing left to blend with. Start the next handoff while it has a few phrases left."
+        }
+    }
     func stopAll() { mix.stopAll() }
     func toggleCue(_ i: Int) { mix.setCue(deck: i, !mix.cue[i]) }
     func setCueMix(_ v: Double) {
@@ -384,7 +459,7 @@ final class AppModel: ObservableObject {
         case "play":
             mix.play(deck: mix.outgoing)
         case "cue":
-            mix.cueIncoming(every: (msg["every"] as? Double) ?? 32)
+            cueIncoming(every: (msg["every"] as? Double) ?? 32)
         case "eq":
             if let deck, let band, let v = msg["v"] as? Double, free("eq:\(deckName):\(band.rawValue)") {
                 mix.setEQ(deck: deck, band: band, v)
@@ -410,6 +485,7 @@ final class AppModel: ObservableObject {
 
     private func refresh() {
         outgoing = mix.outgoing
+        if plannedEntry != mix.plannedEntry { plannedEntry = mix.plannedEntry }
         lanes = mix.lanes
         if eq != mix.eq { eq = mix.eq }
         if volumes != mix.volumes { volumes = mix.volumes }
@@ -436,6 +512,7 @@ final class AppModel: ObservableObject {
 
     private func tick() {
         mix.syncTick(interval: 1.0 / 30)
+        if scoring != mix.coach.active { scoring = mix.coach.active }
         let b = mix.outgoingBeat()
         if (b == nil) != (beat == nil) || b.map({ Int($0 * 4) }) != beat.map({ Int($0 * 4) }) { beat = b }
         // A finished deck stops on its own; keep the play state honest.
