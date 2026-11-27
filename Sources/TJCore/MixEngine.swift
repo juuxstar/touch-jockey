@@ -275,6 +275,10 @@ public final class MixEngine {
                         try self.decks[deckIndex].load(url: url, analysis: analysis, in: self.engine)
                         if deckIndex == self.incoming { self.incomingStartBeat = nil }
                         self.plannedEntry = nil
+                        // A new track starts at its own tempo, then SYNC matches the waiting
+                        // deck to the master straight away, so its BPM shows synced before it plays.
+                        self.decks[deckIndex].timePitch.rate = 1
+                        if !self.decks[self.incoming].isPlaying { self.matchIncomingTempo() }
                         self.applyGains()
                         completion(.success(grid))
                     } catch { completion(.failure(error)) }
@@ -480,15 +484,17 @@ public final class MixEngine {
 
     public func setSync(_ on: Bool) {
         syncOn = on
-        let inc = decks[incoming]
-        if on, let outBPM = decks[outgoing].playingBPM, let g = inc.grid {
-            baseRatio = outBPM / g.bpm
-            phaseIntegral = 0
-            inc.timePitch.rate = Float(baseRatio)
-        } else if !on {
-            inc.timePitch.rate = 1
-        }
+        if on { matchIncomingTempo() } else { decks[incoming].timePitch.rate = 1 }
         onChange?()
+    }
+
+    /// With SYNC on, sets the incoming deck to the master's tempo (playing or not).
+    private func matchIncomingTempo() {
+        let inc = decks[incoming]
+        guard syncOn, let outBPM = decks[outgoing].playingBPM, let g = inc.grid else { return }
+        baseRatio = outBPM / g.bpm
+        phaseIntegral = 0
+        inc.timePitch.rate = Float(baseRatio)
     }
 
     /// Jog a stopped deck to a beat (it plays from there; CUE then sets the cue point there).

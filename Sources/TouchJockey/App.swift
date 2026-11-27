@@ -605,7 +605,7 @@ struct ContentView: View {
                       : "**PLAY**, synced to the master, starting on its next beat.\n\nIt's **silent** until you move the lanes.")
                 if !isOut {
                     Button("SYNC") { m.toggleSync() }.tjButton(TJ.deck(i), filled: m.syncOn)
-                        .tip(m.syncOn ? "**SYNC on**: this deck follows the master's **tempo** and **beat**.\n\nClick to turn it off and play at its own tempo."
+                        .tip(m.syncOn ? "**SYNC on**: this deck follows the master's **tempo** and **beat**. A track loaded here takes the master's tempo straight away, so its BPM already shows the synced tempo; the library shows its own.\n\nClick to turn it off and play at its own tempo."
                               : "**SYNC off**: this deck plays at its own tempo.\n\nClick to lock it to the master's tempo and beat.")
                 }
             }

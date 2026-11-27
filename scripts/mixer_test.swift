@@ -308,5 +308,23 @@ check("a plan on the outgoing deck's start: Play all starts both together", mix.
 planTicker.invalidate()
 mix.stopAll()
 
+print("\nA track loaded with SYNC on takes the master's tempo straight away")
+func reloadIncoming() {
+    // Levels (126 BPM), not the 122 BPM master, so the tempo really has to change.
+    let i = mix.incoming, url = URL(fileURLWithPath: M + "Avicii/Levels (2011)/Avicii - Levels - 02 - Levels (original version).mp3")
+    var done = false
+    mix.load(url: url, into: i) { _ in done = true }
+    while !done { wait(0.05) }
+}
+let master = { mix.decks[mix.outgoing].playingBPM ?? 0 }, waiting = { mix.decks[mix.incoming] }
+mix.setSync(false)
+reloadIncoming()
+check("SYNC off: its own tempo", abs((waiting().playingBPM ?? 0) - (waiting().grid?.bpm ?? 0)) < 0.01)
+mix.setSync(true)
+reloadIncoming()
+print(String(format: "   master %.2f BPM, loaded track %.2f BPM (own %.2f)", master(), waiting().playingBPM ?? 0, waiting().grid?.bpm ?? 0))
+check("a different tempo from the master", abs((waiting().grid?.bpm ?? 0) - master()) > 1)
+check("SYNC on: the master's tempo before it plays", !waiting().isPlaying && abs((waiting().playingBPM ?? 0) - master()) < 0.01)
+
 print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)
