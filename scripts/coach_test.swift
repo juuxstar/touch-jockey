@@ -51,4 +51,14 @@ let q = SkillProgress(dictionary: p.dictionary)
 check("round-trips through storage", q == p)
 var fresh = SkillProgress(); fresh.unlockEverything = true
 check("unlock everything", fresh.allows(.free) && fresh.isUnlocked(.cue))
+print("bass swap tolerance")
+for (at, pass, label) in [(380.0, true, "a bar early passes"), (388.0, true, "a bar late passes"), (376.0, false, "two bars early misses"), (384.0, true, "on the line passes")] {
+    let t = run(.snap, entry: 320, { b in [.high: ramp(b, 330, 350), .mid: ramp(b, 330, 350), .low: b >= at ? 1 : 0] }, until: 392)
+    print("     \(t.checks[1].detail)")
+    check(label, t.checks[1].passed == pass)
+}
+print("advice")
+let sloppy = run(.snap, entry: 324, { b in [.high: ramp(b, 340, 342), .mid: ramp(b, 340, 342), .low: ramp(b, 350, 370)] }, until: 372)
+check("every missed check has advice", sloppy.checks.allSatisfy { $0.passed || !($0.advice ?? "").isEmpty })
+check("passed checks have none", clean.checks.allSatisfy { $0.advice == nil })
 print(failures == 0 ? "\nall ok" : "\n\(failures) FAILED"); exit(failures == 0 ? 0 : 1)

@@ -233,8 +233,13 @@ struct ContentView: View {
         // Decks, timeline and mixer on top; the library table fills the rest; status line last.
         VStack(alignment: .leading, spacing: 10) {
             mainColumn
-            LibraryView().frame(minHeight: 170, maxHeight: .infinity)
-            if let r = m.lastReport { scorecard(r) }
+            // The library, with the last handoff's scorecard beside it once there is one.
+            HStack(alignment: .top, spacing: 10) {
+                // The library gives up width (its text columns narrow) so the scorecard always fits.
+                LibraryView().frame(minWidth: 0, maxWidth: .infinity)
+                if let r = m.lastReport { scorecard(r).frame(width: 340).layoutPriority(1) }
+            }
+            .frame(minHeight: 170, maxHeight: .infinity)
             if let ch = m.practiceChapter { practiceBar(ch) }
             statusLine
         }
@@ -295,55 +300,73 @@ struct ContentView: View {
         let color = r.clean ? TJ.mint : TJ.gold
         let passed = r.checks.filter(\.passed).count
         let next = SkillProgress.Unlock.allCases.first { !m.progress.isUnlocked($0) }
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
+        return Panel(color: color, fillHeight: true) {
+            HStack(spacing: 8) {
                 Image(systemName: r.clean ? "checkmark.seal.fill" : "list.bullet.clipboard").foregroundColor(color)
-                Text(r.clean ? "Clean handoff" : "Handoff: \(passed) of \(r.checks.count) checks")
+                Text(r.clean ? "Scorecard · all \(r.checks.count) checks passed" : "Scorecard · \(passed) of \(r.checks.count) checks passed")
                     .font(.tj(11, weight: .heavy)).tracking(1).textCase(.uppercase).foregroundColor(color)
-                Spacer()
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                Spacer(minLength: 4)
+                Button { m.lastReport = nil; m.newUnlocks = [] } label: { Image(systemName: "xmark") }
+                    .tjButton(TJ.mute)
+                    .tip("**Close** the scorecard. The next handoff brings a new one.")
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 9) {
+                    ForEach(m.newUnlocks, id: \.self) { u in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("Unlocked: \(u.title)", systemImage: "lock.open.fill")
+                                .font(.tj(13, weight: .bold)).foregroundColor(TJ.gold)
+                            Text(u.unlockedLine).font(.tj(12)).foregroundColor(TJ.mute)
+                                .fixedSize(horizontal: false, vertical: true)
+                            if u == .freeTiming, m.ladder.timing != .free {
+                                Button("Switch to Free") { m.setLevel(.free) }
+                                    .tjButton(TJ.gold, filled: true)
+                                    .tip("**Free timing**: from now on a Flick lands the moment you make it. Step back to **Snap** any time in **Settings → Your skills**.")
+                            }
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(TJ.gold.opacity(0.1)))
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(TJ.gold, lineWidth: 1.5))
+                    }
+                    ForEach(Array(r.checks.enumerated()), id: \.offset) { k, c in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: c.passed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundColor(c.passed ? TJ.mint : TJ.rose)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(c.title).font(.tj(12.5, weight: .semibold))
+                                    .foregroundColor(c.passed ? .white : TJ.rose)
+                                Text(k == 1 ? c.detail + Self.offsetText(r.bassSwapOffsetMs) : c.detail)
+                                    .font(.tj(11.5)).foregroundColor(TJ.mute)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                if let advice = c.advice {
+                                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                        Image(systemName: "lightbulb.fill").font(.tj(10.5)).foregroundColor(TJ.gold)
+                                        Text("Next time: " + advice).font(.tj(11.5)).foregroundColor(Color.white.opacity(0.85))
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    .padding(.top, 2)
+                                }
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            VStack(alignment: .leading, spacing: 5) {
                 if let next {
                     Text("\(m.progress.cleanHandoffs) of \(next.cleanHandoffsNeeded) clean handoffs to unlock \(next.title)")
                         .font(.tj(12)).foregroundColor(TJ.mute).monospacedDigit()
                     ProgressView(value: Double(min(m.progress.cleanHandoffs, next.cleanHandoffsNeeded)),
                                  total: Double(next.cleanHandoffsNeeded))
-                        .tint(TJ.mint).frame(width: 90)
+                        .tint(TJ.mint)
                 } else {
-                    Text("\(m.progress.cleanHandoffs) clean handoffs").font(.tj(12)).foregroundColor(TJ.mute).monospacedDigit()
-                }
-                Button { m.lastReport = nil; m.newUnlocks = [] } label: { Image(systemName: "xmark") }
-                    .tjButton(TJ.mute)
-                    .tip("**Close** the scorecard. The next handoff brings a new one.")
-            }
-            HStack(alignment: .top, spacing: 14) {
-                ForEach(Array(r.checks.enumerated()), id: \.offset) { k, c in
-                    VStack(alignment: .leading, spacing: 3) {
-                        Label(c.title, systemImage: c.passed ? "checkmark.circle.fill" : "xmark.circle.fill")
-                            .font(.tj(12, weight: .semibold))
-                            .foregroundColor(c.passed ? TJ.mint : TJ.rose)
-                        Text(k == 1 ? c.detail + Self.offsetText(r.bassSwapOffsetMs) : c.detail)
-                            .font(.tj(11.5)).foregroundColor(TJ.mute)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            ForEach(m.newUnlocks, id: \.self) { u in
-                HStack(spacing: 10) {
-                    Image(systemName: "lock.open.fill").foregroundColor(TJ.gold)
-                    Text("Unlocked: \(u.title)").font(.tj(13, weight: .bold)).foregroundColor(TJ.gold)
-                    Text(u.unlockedLine).font(.tj(12)).foregroundColor(TJ.mute)
-                    Spacer()
-                    if u == .freeTiming, m.ladder.timing != .free {
-                        Button("Switch to Free") { m.setLevel(.free) }
-                            .tjButton(TJ.gold, filled: true)
-                            .tip("**Free timing**: from now on a Flick lands the moment you make it. Step back to **Snap** any time in **Settings → Your skills**.")
-                    }
+                    Text("\(m.progress.cleanHandoffs) clean handoffs. Everything is unlocked.")
+                        .font(.tj(12)).foregroundColor(TJ.mute).monospacedDigit()
                 }
             }
         }
-        .padding(.horizontal, 12).padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 10).fill(color.opacity(0.07)))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(color, lineWidth: 2))
     }
 
     /// " 18 ms early." for a free bass swap; nothing at snap, where it lands on the bar.
@@ -366,7 +389,12 @@ struct ContentView: View {
             if ch.wantsPracticeTracks {
                 Button { m.setUpPractice() } label: { Label("Reset", systemImage: "arrow.counterclockwise") }
                     .tjButton(TJ.sky)
-                    .tip("**Reset**: stop, and set the two decks up again: the deck you mix out of near its end, the other at bar 1. Press **Play all** for another run.")
+                    .tip("**Reset**: stop, and set the two decks up again: the deck you mix out of near its end, the other at bar 1."
+                         + (m.ladder.blend != .mixer ? " The handoff lanes go back to the outgoing deck."
+                            : ch.practiceMixerStart == .crossfader
+                            ? " The mixer starts over too: every EQ in the centre, both faders up, and the crossfader on the outgoing deck's side."
+                            : " The mixer starts over too: every EQ in the centre, the outgoing deck's fader up and the incoming deck's down.")
+                         + "\n\nPress **Play all** for another run.")
                 Button { m.setUpPractice(newPair: true) } label: { Label("New pair", systemImage: "shuffle") }
                     .tjButton(TJ.sky)
                     .tip("**New pair**: load two different tracks from your library, with similar tempos and keys that blend, and set them up for practice.")

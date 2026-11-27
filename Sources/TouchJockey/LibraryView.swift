@@ -23,7 +23,7 @@ struct LibraryView: View {
     /// Title, artist and album split what's left after the fixed columns: 40% / 32% / 28%.
     private var textWidths: (title: CGFloat, artist: CGFloat, album: CGFloat) {
         let fixed = dotW + bpmW + keyW + fitW + lenW + deckW + loadW + gap * 10 + 16
-        let flex = max(240, tableWidth - fixed)
+        let flex = max(150, tableWidth - fixed)
         return (flex * 0.40, flex * 0.32, flex * 0.28)
     }
 
@@ -32,7 +32,10 @@ struct LibraryView: View {
             // One tight stack, so the header and column titles don't get the panel's 10 pt gaps.
             VStack(alignment: .leading, spacing: 4) {
                 header
+                // Measure the width the panel offers, not the row's own: the columns are sized from it,
+                // so measuring the row would never let the table get narrower.
                 columnHeaders
+                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                     .background(GeometryReader { g in
                         Color.clear.onAppear { tableWidth = g.size.width }
                             .onChange(of: g.size.width) { tableWidth = $0 }
@@ -76,7 +79,7 @@ struct LibraryView: View {
                         .buttonStyle(.borderless).foregroundColor(TJ.mute)
                 }
             }
-            .padding(.horizontal, 8).frame(width: 300, height: 24)
+            .padding(.horizontal, 8).frame(minWidth: 150, idealWidth: 300, maxWidth: 300, minHeight: 24, maxHeight: 24)
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(searchFocused ? TJ.sky : Color.white.opacity(0.15), lineWidth: 1.5))
             .tip("**Search** the library by title, artist or album.\n\nShortcut: **⌘F**")
             // Recent / All as the app's own buttons: the selected one is filled.

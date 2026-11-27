@@ -468,12 +468,38 @@ public final class MixEngine {
         onChange?()
     }
 
+    /// How the mixer starts a practice run: which control keeps the incoming deck silent.
+    public enum PracticeMixerStart {
+        /// The incoming deck's channel fader is down; the crossfader is centred.
+        case fader
+        /// Both faders are up; the crossfader is on the outgoing deck's side.
+        case crossfader
+    }
+
     /// Sets both decks up for practising a transition: stops everything (as `stopAll`), parks
     /// the outgoing deck on the phrase line that leaves `phrasesLeft` phrases or a little more before
     /// its end, and makes that its cue point, then puts the incoming deck at bar 1. Both sit
     /// on phrase lines, so Play all and Next phrase start them in phrase, and Stop all comes back here.
-    public func parkForPractice(phrasesLeft: Int = 4) {
+    ///
+    /// At the mixer level the mixer starts over too: every EQ in the centre, the outgoing deck
+    /// fully up and the incoming one silent, by its fader or the crossfader (`mixerStart`).
+    /// At the handoff level the mixer is bypassed and held neutral, so it's left alone.
+    public func parkForPractice(phrasesLeft: Int = 4, mixerStart: PracticeMixerStart = .fader) {
         stopAll()
+        if mixerMode {
+            eq = [[.low: 0.5, .mid: 0.5, .high: 0.5], [.low: 0.5, .mid: 0.5, .high: 0.5]]
+            switch mixerStart {
+            case .fader:
+                volumes[outgoing] = 1
+                volumes[incoming] = 0
+                crossfader = 0.5
+            case .crossfader:
+                volumes = [1, 1]
+                crossfader = laneEnd(forDeck: outgoing)
+            }
+            applyGains()
+            onChange?()
+        }
         let out = decks[outgoing], inc = decks[incoming]
         guard let og = out.grid, inc.grid != nil else { return }
         let total = og.beat(atSeconds: og.duration)

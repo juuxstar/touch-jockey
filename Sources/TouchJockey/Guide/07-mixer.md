@@ -19,6 +19,8 @@ With separate controls you can do things lanes can't:
 
 Set **Blend control** to **Mixer** in **Settings → Your skills**. The phone switches to a mixer: deck A's strip on the left, deck B's on the right, and a crossfader along the bottom.
 
+**Go practice** and **Reset** set the mixer up for the first step: every EQ in the centre, the outgoing deck's fader up and the incoming deck's fader down.
+
 A typical mixer transition:
 
 1. Before starting B, turn **B's LOW** all the way down (kill).

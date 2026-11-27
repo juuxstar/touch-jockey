@@ -194,7 +194,7 @@ final class AppModel: ObservableObject {
         let out = mix.outgoing, inc = mix.incoming
         mix.stopAll()
         if !newPair, mix.decks[out].grid != nil, mix.decks[inc].grid != nil {
-            mix.parkForPractice()
+            mix.parkForPractice(mixerStart: practiceChapter?.practiceMixerStart ?? .fader)
             status = "Ready to practise: \(mix.decks[out].name) near its end, \(mix.decks[inc].name) at bar 1. Press Play all."
             refresh()
             return
@@ -214,7 +214,7 @@ final class AppModel: ObservableObject {
             ok = ok && loaded
             waiting -= 1
             guard waiting == 0, ok else { return }
-            mix.parkForPractice()
+            mix.parkForPractice(mixerStart: practiceChapter?.practiceMixerStart ?? .fader)
             status = "Practice pair ready: \(pair.0.title) near its end, \(pair.1.title) at bar 1. Press Play all."
             refresh()
         }

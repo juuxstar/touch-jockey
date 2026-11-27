@@ -31,17 +31,17 @@ In a set, a handoff plays the old track's **outro** over the new track's **intro
 
 The practice bar has two more buttons:
 
-- **Reset**: after a run, sets the tracks up again for the next one (the other way round, if the handoff swapped them).
+- **Reset**: after a run, sets the tracks up again for the next one (the other way round, if the handoff swapped them), with the lanes back on the outgoing deck. At the mixer level it resets the mixer too.
 - **New pair**: loads two different tracks.
 
 > The phrase lines count from the first downbeat Touch Jockey found. If a track's changes don't land on the lines, trust your ears over the grid, or press **New pair**.
 
 ## Your scorecard
 
-When a handoff finishes, a scorecard appears above the status line. A **clean handoff** passes all five checks:
+When a handoff finishes, a scorecard appears beside the library. A **clean handoff** passes all five checks:
 
 - **Came in on a phrase line**: the new track started on a phrase.
-- **Bass swap on a phrase line**: LOWS crossed over on a phrase.
+- **Bass swap on a phrase line**: LOWS crossed over on a phrase line, or within a bar of it. Right on the line sounds tightest, and the scorecard tells you when you were a bar out.
 - **Basslines together under a bar**: no muddy stretch with both basses playing.
 - **Blend over 8 bars or more**: highs and mids came in gradually.
 - **Finished before the track ran out**: the old track didn't end mid-blend.

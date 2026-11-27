@@ -13,8 +13,10 @@ It's useful for:
 
 The crossfader sits along the bottom of the mixer, on the Mac and on the phone. Double-click (or double-tap on the phone) to centre it.
 
+**Go practice** and **Reset** set the mixer up for a cut: every EQ in the centre, both faders up, and the crossfader on the outgoing deck's side.
+
 ## Practice
 
 With both tracks playing in sync, cut from A to B on the ONE of a phrase. Then try cutting back and forth every bar for 4 bars before settling on B. It's a fun trick to use sparingly.
 
-<!-- practice-tracks -->
+<!-- practice-tracks crossfader -->

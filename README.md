@@ -21,7 +21,7 @@ Working:
 - Flick to swap a band on the next bar. When every lane reaches the incoming side, the handoff finishes on the next bar and the decks swap roles.
 - A learning ladder (Settings → Your skills): blend with the handoff lanes or the full mixer, and Flick snapped to the bar or free. See [Learning ladder](#learning-ladder).
 - A handoff scorecard after every handoff at the handoff level; clean handoffs unlock Free timing (5) and the CUE buttons (10). See [Unlocks](#unlocks).
-- Guide practice: **Go practice** on a transition chapter parks two tracks (the ones loaded, or a tempo- and key-matched pair from the library) on phrase lines, the outgoing one four phrases from its end; the practice bar has Reset and New pair.
+- Guide practice: **Go practice** on a transition chapter parks two tracks (the ones loaded, or a tempo- and key-matched pair from the library) on phrase lines, the outgoing one four phrases from its end; at the mixer level it also resets the mixer (EQs centred, outgoing fader up, incoming fader down, or for the crossfader chapter both faders up and the crossfader on the outgoing side). The practice bar has Reset and New pair.
 - A conventional two-channel mixer at the mixer level: per-deck HIGH/MID/LOW EQ (kill at the bottom, 0 dB at the centre, +6 dB at the top), a volume fader per deck, and a crossfader. Mixer and lanes never act at once (see [Gain model](#gain-model)).
 - Speakers and headphones (Settings → Audio): each deck gets a headphones button that sends it to the headphones before the bands, lanes and faders, so a deck silent in the speakers is still heard there; a cue-mix slider beside the mixer sets what the headphones play (cued decks, the speaker mix, or both). Separate devices are joined in a private aggregate device; a device with four or more outputs can carry the headphones on channels 3–4.
 - Web surface for any phone or tablet:
@@ -147,7 +147,7 @@ track ends first). A handoff is **clean** when it passes all five checks:
 | Check | Passes when |
 | --- | --- |
 | Came in on a phrase line | the incoming track started within a beat of a phrase line (32 beats) |
-| Bass swap on a phrase line | LOWS last crossed half-way within a beat of a phrase line |
+| Bass swap on a phrase line | LOWS last crossed half-way within a bar (4 beats) of a phrase line; the detail says how many bars early or late |
 | Basslines together under a bar | LOWS spent under 4 beats between 0.2 and 0.8 |
 | Blend over 8 bars or more | 32+ beats from the first lane leaving the old track to the finish |
 | Finished before the track ran out | the lanes finished before the old track's last beat |

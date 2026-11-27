@@ -1,4 +1,5 @@
 import SwiftUI
+import TJCore
 
 // MARK: - Chapters
 
@@ -10,6 +11,9 @@ struct GuideChapter: Identifiable, Hashable {
     /// The chapter's file has a `<!-- practice-tracks -->` line: its exercise needs two tracks,
     /// so Go practice sets up a practice pair and the practice bar offers Reset and New pair.
     var wantsPracticeTracks = false
+    /// How a practice run sets the mixer up: `<!-- practice-tracks crossfader -->` silences the
+    /// incoming deck with the crossfader instead of its fader.
+    var practiceMixerStart: MixEngine.PracticeMixerStart = .fader
 
     /// The chapter's "## Practice" section, if it has one (the exercise shown while practising).
     var practice: String? {
@@ -34,12 +38,13 @@ struct GuideChapter: Identifiable, Hashable {
                 var lines = text.components(separatedBy: "\n")
                 let title = lines.first.map { $0.hasPrefix("# ") ? String($0.dropFirst(2)) : $0 } ?? url.lastPathComponent
                 lines.removeFirst()
-                let marker = "<!-- practice-tracks -->"
-                let wants = lines.contains { $0.trimmingCharacters(in: .whitespaces) == marker }
+                let marker = lines.map { $0.trimmingCharacters(in: .whitespaces) }
+                    .first { $0.hasPrefix("<!-- practice-tracks") }
                 lines.removeAll { $0.trimmingCharacters(in: .whitespaces).hasPrefix("<!--") }
                 return GuideChapter(id: url.deletingPathExtension().lastPathComponent, title: title,
                                     body: lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines),
-                                    wantsPracticeTracks: wants)
+                                    wantsPracticeTracks: marker != nil,
+                                    practiceMixerStart: marker?.contains("crossfader") == true ? .crossfader : .fader)
             }
     }
 }

@@ -10,6 +10,8 @@ public struct HandoffReport: Equatable {
         public var passed: Bool
         /// What was measured, in words: "on bar 65, 3 bars before a phrase line".
         public var detail: String
+        /// For a missed check: what to try next time.
+        public var advice: String? = nil
     }
 
     /// The checks in the order they happen in a handoff.
@@ -37,9 +39,13 @@ public struct HandoffCoach {
     public static let minBlendBars = 8.0
     /// Both basslines together for less than this many bars, or they sound muddy.
     public static let maxBassOverlapBars = 1.0
-    /// How far (in beats) a start or a bass swap may be from a phrase line and still count as on it.
-    /// A snapped Flick lands exactly on a bar; a dragged lane gets a beat either way.
+    /// How far (in beats) the incoming track's start may be from a phrase line and still count as on it.
+    /// Next phrase starts it exactly on the line; this allows for a start by hand.
     public static let phraseTolerance = 1.0
+    /// How far (in beats) the bass swap may be from a phrase line and still pass: a bar either way.
+    /// Right on the line sounds tightest, and the scorecard says so, but a bar early is a common
+    /// deliberate move (a bar of tension) and a bar late is not a train wreck.
+    public static let bassSwapTolerance = 4.0
     /// A lane counts as moved once it is this far from the outgoing side, and as arrived this close to the incoming side.
     static let moved = 0.05
     /// The LOWS lane between these (as a fraction of the way over) means both basslines are clearly audible.
@@ -120,26 +126,40 @@ public struct HandoffCoach {
         let entryOK = phraseDistance(entryBeat) <= Self.phraseTolerance
         checks.append(.init(title: "Came in on a phrase line", passed: entryOK,
                             detail: entryOK ? "Started on bar \(bar(entryBeat))."
-                                            : "Started on bar \(bar(entryBeat)), off the phrase. Use Next phrase."))
+                                            : "Started on bar \(bar(entryBeat)), in the middle of a phrase.",
+                            advice: "Bring the new track in with Next phrase: it waits for the phrase line for you."))
         if let s = bassSwapBeat {
-            let ok = phraseDistance(s) <= Self.phraseTolerance
-            let next = (s / 32).rounded(.up) * 32
+            let line = (s / 32).rounded() * 32               // the nearest phrase line
+            let ok = phraseDistance(s) <= Self.bassSwapTolerance
+            let barsOff = Int(((s - line) / 4).rounded())    // negative = early
+            let off = barsOff == 0 ? "" : abs(barsOff) == 1 ? "a bar" : "\(abs(barsOff)) bars"
+            let when = barsOff < 0 ? "early" : "late"
             checks.append(.init(title: "Bass swap on a phrase line", passed: ok,
-                                detail: ok ? "Swapped on bar \(bar(s))."
-                                           : "Swapped on bar \(bar(s)); the next phrase line was bar \(bar(next))."))
+                                detail: barsOff == 0 ? "Swapped on bar \(bar(s)), right on the phrase line."
+                                      : ok ? "Swapped on bar \(bar(s)), \(off) \(when) for the phrase line at bar \(bar(line)). Close enough; right on the line sounds tightest."
+                                      : "Swapped on bar \(bar(s)), \(off) \(when) for the phrase line at bar \(bar(line)).",
+                                advice: timing == .free
+                                    ? "Count the bars along with the music and flick LOWS on the ONE of a new phrase, a touch early rather than late."
+                                    : "Wait until the phrase bar on the deck is nearly full, then flick LOWS during the last bar: the snap lands it right on the phrase line."))
         } else {
             checks.append(.init(title: "Bass swap on a phrase line", passed: false,
-                                detail: "The bass never moved to the new track."))
+                                detail: "The bass never moved to the new track.",
+                                advice: "Move LOWS all the way to the new track, on a phrase line. That's the bass swap."))
         }
         let overlapOK = overlapBars < Self.maxBassOverlapBars
         checks.append(.init(title: "Basslines together under a bar", passed: overlapOK,
-                            detail: String(format: "Both basslines played for %@.", Self.bars(overlapBars))))
+                            detail: String(format: "Both basslines played for %@.", Self.bars(overlapBars)),
+                            advice: "Swap the bass in one move: flick LOWS instead of sliding it, so the two basslines never play over each other."))
         let blendOK = blendBars >= Self.minBlendBars
         checks.append(.init(title: "Blend over 8 bars or more", passed: blendOK,
-                            detail: String(format: "The blend took %@.", Self.bars(blendBars))))
+                            detail: String(format: "The blend took %@.", Self.bars(blendBars)),
+                            advice: "Take your time: slide the highs, then the mids, across over a whole phrase (8 bars) or more before the bass swap."))
         checks.append(.init(title: "Finished before the track ran out", passed: finished,
                             detail: finished ? "The old track stopped on the bar after the last lane arrived."
-                                             : "The old track ended mid-blend. Start the handoff earlier."))
+                                             : "The old track ended in the middle of the blend.",
+                            advice: "Start sooner: bring the new track in at least four phrases before the old one ends. Go practice parks it there for you."))
+        // Advice only where it's needed.
+        for i in checks.indices where checks[i].passed { checks[i].advice = nil }
         return HandoffReport(checks: checks, blendBars: blendBars, bassOverlapBars: overlapBars,
                              bassSwapOffsetMs: bassSwapOffsetMs, timing: timing)
     }
