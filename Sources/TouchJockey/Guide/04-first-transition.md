@@ -23,7 +23,7 @@ The phone shows three **handoff lanes**: HIGHS, MIDS and LOWS. Each lane moves o
 
 > Hold the phone upright and you can slide all three lanes with three fingers.
 
-The playing track is always the **outgoing** deck. If you pause it while the other one plays, the one still playing takes over, every lane moves to it, and **Next phrase** and **Bring in next bar** move to the paused deck, ready to bring it back in.
+The playing track is always the **outgoing** deck. If you pause it while the other one plays, the one still playing takes over, every lane moves to it, and **Next phrase** and **Next bar** move to the paused deck, ready to bring it back in.
 
 ## Setting up a practice run
 

@@ -458,12 +458,13 @@ struct ContentView: View {
                 }
                 Spacer()
                 if !isOut {
-                    Button("Bring in next bar") { m.cueIncoming(every: 4) }
+                    Button("Next bar") { m.cueIncoming(every: 4) }
                         .disabled(d.bpm == nil || !m.decks[m.outgoing].playing).tjButton(TJ.deck(i))
-                        .tip("**Bring in next bar**: start this track from where it's parked (bar 1 unless you moved it), synced, at the start of the master\'s next bar.\n\nIt stays **silent** until you move the lanes.")
+                        .tip("**Next bar**: start this track on the master's next **bar**, at most 4 beats away.\n\nQuick, but it lands on a phrase line only if you press it in the last bar of a phrase. To start in phrase every time, use **Next phrase**.\n\nIt plays from where it's parked, synced and **silent** until you move the lanes.")
                     Button("Next phrase") { m.cueIncoming(every: 32) }
                         .disabled(d.bpm == nil || !m.decks[m.outgoing].playing).tjButton(TJ.deck(i))
-                        .tip("**Next phrase**: start this track from where it's parked (bar 1 unless you moved it), synced, when the master reaches its next **phrase** (8 bars).\n\nPhrases are where dance tracks change, so this is the natural moment to bring a track in.")
+                        .tip("**Next phrase**: start this track when the master reaches its next **phrase** line, up to 8 bars away.\n\nPhrases are where dance tracks change, so the track always comes in in phrase. To start sooner, use **Next bar**.\n\nIt plays from where it's parked, synced and **silent** until you move the lanes.")
+                    InfoTip("**Next bar** and **Next phrase** both start this track from where it's parked, synced to the master and **silent** until you move the lanes. They differ in **when** it starts:\n\n- **Next bar**: on the master's next bar, at most 4 beats away. Quick, but in phrase only if you press it in the last bar of a phrase.\n- **Next phrase**: on the master's next phrase line, up to 8 bars away. Always in phrase, which is what the scorecard checks.\n\nUse **Next phrase** for your handoffs.")
                 }
                 if m.headphones != nil {
                     Button { m.toggleCue(i) } label: { Image(systemName: "headphones").frame(width: 18) }

@@ -14,7 +14,7 @@ DJs start and change things on phrase boundaries, because that's when the crowd 
 
 - The **timeline** draws faint lines on beats, brighter lines on bars, and labelled lines on phrases.
 - The deck card shows **Bar** and **beat**. The phone's dots light up on each beat of the bar.
-- **Bring in next bar** and **Next phrase** start the incoming track exactly on a boundary, so it's always in phrase.
+- **Next bar** and **Next phrase** start the incoming track exactly on a boundary. **Next phrase** waits for the phrase line, so it's always in phrase; **Next bar** starts sooner, on the next bar.
 
 ## Practice
 
