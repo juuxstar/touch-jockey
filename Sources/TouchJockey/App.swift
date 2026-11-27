@@ -433,7 +433,7 @@ struct ContentView: View {
                 HStack(spacing: 6) {
                     Cap(text: isOut ? "Outgoing · Master" : "Incoming")
                     InfoTip(isOut
-                        ? "**Outgoing deck**: the track the crowd hears now.\n\nIt's the **master**: it sets the tempo, and the other deck syncs to it. You blend away from it with the **handoff lanes**."
+                        ? "**Outgoing deck**: the track the crowd hears now.\n\nIt's the **master**: it sets the tempo, and the other deck syncs to it. You blend away from it with the **handoff lanes**.\n\nA deck playing on its own is always the outgoing deck: pause this one while the other plays and they swap."
                         : "**Incoming deck**: the next track.\n\n1. **Load** it from the library.\n2. **Start** it: it plays silently, synced to the master.\n3. **Move the lanes** to bring it in.\n\nWhen every lane reaches it, it becomes the outgoing deck.")
                 }
                 .padding(.top, 7).padding(.trailing, 10)

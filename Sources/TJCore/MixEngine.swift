@@ -18,8 +18,12 @@ import Foundation
 ///   unity, faders full, crossfader centred) and ignores input. A handoff finishes when
 ///   every lane reaches the incoming side.
 /// - **Mixer**: the lanes are bypassed and ignore input, so each band gain is that deck's
-///   EQ gain. The roles swap when the outgoing deck stops or pauses while the incoming
-///   deck plays, so the deck you hear becomes the master and SYNC keeps working.
+///   EQ gain.
+///
+/// At either level, a deck playing on its own is the master: when the outgoing deck stops
+/// or pauses while the incoming deck plays, the roles swap, so SYNC keeps working and the
+/// start buttons (`cueIncoming`) belong to the deck that is waiting. At the handoff level
+/// the lanes go over to the new master too, so it plays in full (see `checkSoloSwap`).
 ///
 ///     band gain   = lane gain (handoff)  or  EQ gain (mixer)
 ///     deck volume = 1 (handoff)          or  channel fader gain × crossfader gain (mixer)
@@ -325,11 +329,12 @@ public final class MixEngine {
             d.play(fromBeat: from.rounded(), atHostTime: host)   // whole beat, so it lands on the beat
             incomingStartBeat = beat
         } else {
-            if i == outgoing && !decks[incoming].isPlaying { d.timePitch.rate = 1 }
+            // Its own tempo, unless it's the outgoing deck with the incoming one synced to it.
+            if i == incoming || !decks[incoming].isPlaying { d.timePitch.rate = 1 }
             d.play(fromBeat: from, atHostTime: nil)
         }
         d.pausedBeat = nil
-        checkMixerSwap()
+        checkSoloSwap()
         onChange?()
     }
 
@@ -366,7 +371,7 @@ public final class MixEngine {
         out.pausedBeat = nil
         inc.pausedBeat = nil
         incomingStartBeat = outFrom
-        checkMixerSwap()
+        checkSoloSwap()
         onChange?()
     }
 
@@ -393,7 +398,7 @@ public final class MixEngine {
                 play(deck: i)
             }
         }
-        checkMixerSwap()
+        checkSoloSwap()
         onChange?()
     }
 
@@ -404,7 +409,7 @@ public final class MixEngine {
         d.stop()
         d.pausedBeat = nil
         if i == incoming { incomingStartBeat = nil }
-        checkMixerSwap()
+        checkSoloSwap()
         onChange?()
     }
 
@@ -442,7 +447,7 @@ public final class MixEngine {
         d.pausedBeat = d.currentBeat()
         d.stop()
         if i == incoming { incomingStartBeat = nil }
-        checkMixerSwap()
+        checkSoloSwap()
         onChange?()
     }
 
@@ -452,7 +457,7 @@ public final class MixEngine {
         d.stop()
         d.pausedBeat = nil
         if i == incoming { incomingStartBeat = nil }
-        checkMixerSwap()
+        checkSoloSwap()
         onChange?()
     }
 
@@ -628,7 +633,7 @@ public final class MixEngine {
         }
         applyGains()
         if !mixerMode { checkFinish() }
-        checkMixerSwap()
+        checkSoloSwap()
         onChange?()
     }
 
@@ -659,14 +664,26 @@ public final class MixEngine {
         crossfader = 0.5
     }
 
-    /// At the mixer level, the deck you hear is the master: when the outgoing deck has
-    /// stopped or paused and the incoming one plays, they swap roles.
-    private func checkMixerSwap() {
-        guard mixerMode, !decks[outgoing].isPlaying, decks[incoming].isPlaying else { return }
+    /// A deck playing on its own is the master: when the outgoing deck has stopped or paused
+    /// and the incoming one plays, they swap roles. Returns whether they did.
+    ///
+    /// At the handoff level every lane goes over to the new master, so it plays in full
+    /// rather than silently, and any handoff in progress is dropped without a report. A CUE
+    /// preview there doesn't count: it is a listen, not a new master.
+    @discardableResult
+    private func checkSoloSwap() -> Bool {
+        guard !decks[outgoing].isPlaying, decks[incoming].isPlaying,
+              mixerMode || !previewing.contains(incoming) else { return false }
         outgoing = incoming
         incomingStartBeat = nil
         phaseIntegral = 0
         finishScheduled = false
+        if !mixerMode {
+            coach.cancel()
+            for b in Band.allCases { lanes[b] = laneEnd(forDeck: outgoing); rampGeneration[b, default: 0] += 1 }
+            applyGains()
+        }
+        return true
     }
 
     // MARK: Mixer (EQ, channel faders, crossfader)
@@ -818,7 +835,7 @@ public final class MixEngine {
     /// offset to the nearest whole beat and trims the incoming rate by at most ±1%.
     /// Call it regularly (the app calls it 30 times a second).
     public func syncTick(interval dt: Double) {
-        if mixerMode, !decks[outgoing].isPlaying, decks[incoming].isPlaying { checkMixerSwap(); onChange?() }
+        if checkSoloSwap() { onChange?() }
         coachTick()
         let inc = decks[incoming], out = decks[outgoing]
         guard syncOn, inc.isPlaying, out.isPlaying, incomingStartBeat == nil || (outgoingBeat() ?? 0) >= (incomingStartBeat ?? 0),

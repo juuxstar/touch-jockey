@@ -220,5 +220,31 @@ mix.setLevel(.handoff)
 mix.parkForPractice()
 check("handoff level: mixer held neutral", mix.volumes == [1, 1] && mix.crossfader == 0.5 && mix.eq.allSatisfy { $0.values.allSatisfy { $0 == 0.5 } })
 
+print("\nsolo master: at the handoff level, a deck playing on its own becomes the outgoing deck")
+mix.setLevel(.handoff)
+mix.parkForPractice()
+let so = mix.outgoing, si = mix.incoming
+mix.playAll(); wait(1)
+mix.pause(deck: so)
+check("roles swap when the outgoing deck pauses", mix.outgoing == si && mix.incoming == so)
+check("every lane goes to the new master", Band.allCases.allSatisfy { mix.lanes[$0] == mix.laneEnd(forDeck: si) })
+check("the new master plays in full", Band.allCases.allSatisfy { mix.decks[si].bandGain($0) > 0.999 })
+check("the paused deck keeps its place", mix.decks[so].pausedBeat != nil)
+mix.cueIncoming(every: 4); wait(0.1)
+check("the start buttons now start the paused deck", mix.decks[so].isPlaying)
+mix.stopAll()
+mix.parkForPractice()
+let po = mix.outgoing, pin = mix.incoming
+mix.play(deck: pin)
+check("a deck started alone becomes the master", mix.outgoing == pin)
+check("at its own tempo", abs((mix.decks[pin].playingBPM ?? 0) - (mix.decks[pin].grid?.bpm ?? -1)) < 0.001)
+mix.stopAll()
+mix.parkForPractice()
+let co = mix.outgoing
+mix.cueDown(deck: mix.incoming)   // parked on its cue point, so this previews
+check("a CUE preview doesn't take over", mix.outgoing == co && mix.previewing.contains(mix.incoming))
+mix.cueUp(deck: mix.incoming)
+mix.stopAll()
+
 print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

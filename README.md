@@ -18,7 +18,7 @@ Working:
 - Two decks: sync with key lock, and a phase lock that keeps the beats aligned within a millisecond.
 - The incoming track starts on the outgoing track's next bar or phrase.
 - Three-band handoff with 24 dB/octave crossovers at 200 Hz and 2.5 kHz and equal-power lanes.
-- Flick to swap a band on the next bar. When every lane reaches the incoming side, the handoff finishes on the next bar and the decks swap roles.
+- Flick to swap a band on the next bar. When every lane reaches the incoming side, the handoff finishes on the next bar and the decks swap roles. A deck playing on its own is always the outgoing deck (at the handoff level the lanes follow it), so the start buttons sit on the deck that is waiting.
 - A learning ladder (Settings → Your skills): blend with the handoff lanes or the full mixer, and Flick snapped to the bar or free. See [Learning ladder](#learning-ladder).
 - A handoff scorecard after every handoff at the handoff level; clean handoffs unlock Free timing (5) and the CUE buttons (10). See [Unlocks](#unlocks).
 - Guide practice: **Go practice** on a transition chapter parks two tracks (the ones loaded, or a tempo- and key-matched pair from the library) on phrase lines, the outgoing one four phrases from its end; at the mixer level it also resets the mixer (EQs centred, outgoing fader up, incoming fader down, or for the crossfader chapter both faders up and the crossfader on the outgoing side). The practice bar has Reset and New pair.
