@@ -8,12 +8,15 @@ import TJCore
 /// from its start to its end; the incoming track is drawn from where it will start. Drag the
 /// incoming track left or right to choose the outgoing bar it starts on (snapped to phrase
 /// lines): that sets `MixEngine.plannedEntry`, and the engine starts it there by itself.
+/// Dragged left of `MixEngine.earliestEntry`, it starts later in its own track instead.
 /// Until it's dragged, a dimmed suggestion shows four phrases before the outgoing track's end.
 /// Drag a stopped outgoing track's lane to move where it starts.
 struct LineUpView: View {
     let mix: MixEngine
-    /// While dragging the incoming track: the beats between the pointer and its start.
+    /// While dragging the incoming track: the beats between the pointer and its beat 0, and
+    /// the start spot it had when the drag began (a drag back gives it back).
     @State private var grab: Double?
+    @State private var grabFrom: Double = 0
     @State private var dragging: Int?
 
     var body: some View {
@@ -78,14 +81,27 @@ struct LineUpView: View {
         if dragging == nil {
             let inIncoming = laneRect(mix.incoming, size).contains(g.startLocation)
             dragging = inIncoming ? mix.incoming : mix.outgoing
-            if inIncoming, let a = alignment(), a.kind != .playing { grab = ax.beat(g.startLocation.x) - a.entry }
+            if inIncoming, let a = alignment(), a.kind != .playing {
+                grab = ax.beat(g.startLocation.x) - a.zero
+                grabFrom = a.from
+            }
         }
         if dragging == mix.incoming {
-            // The incoming track: choose the outgoing phrase line it starts on.
-            guard let grab, !mix.decks[mix.incoming].isPlaying, let earliest = mix.earliestEntry else { return }
+            // The incoming track slides as a whole, its phrase lines on the outgoing track's.
+            // It can't start before `earliest` (that part of the outgoing track has played, or
+            // comes before where it starts), so dragged further left it starts later in its own
+            // track instead: the part that would have played already is skipped.
+            let inc = mix.decks[mix.incoming]
+            guard let grab, !inc.isPlaying, let ig = inc.grid, let earliest = mix.earliestEntry else { return }
             let latest = max(earliest, floor((outEnd - 1) / 32) * 32)
-            let phrase = ((ax.beat(g.location.x) - grab) / 32).rounded() * 32
-            mix.planIncoming(atBeat: min(max(phrase, earliest), latest))
+            let incEnd = ig.beat(atSeconds: ig.duration)
+            let zero = ((ax.beat(g.location.x) - grab) / 32).rounded() * 32
+            var from = grabFrom
+            if zero + from < earliest { from = ((earliest - zero) / 32).rounded(.up) * 32 }
+            guard from < incEnd - 32 else { return }          // keep at least a phrase of it
+            let entry = min(zero + from, latest)
+            if abs(from - inc.parkedBeat) > 0.01 { mix.seek(deck: mix.incoming, toBeat: from) }
+            mix.planIncoming(atBeat: entry)
         } else if !mix.decks[mix.outgoing].isPlaying {
             // A stopped outgoing track: move where it starts, to a phrase line.
             let phrase = (ax.beat(g.location.x) / 32).rounded() * 32

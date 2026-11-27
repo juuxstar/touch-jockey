@@ -329,6 +329,8 @@ struct ContentView: View {
 
         **Drag the waiting track** left or right to choose the bar it starts on; it snaps to phrase lines. The gold line and its label say where. When the playing track gets there, the waiting track **starts by itself**, synced, from its start spot. Until you drag it, a dimmed suggestion shows four phrases before the end.
 
+        **Further left** than the playing track allows (it can't start in the part that has already played), it keeps sliding and starts **later in its own track**: the part that would have played already is skipped. Drag it back to undo that.
+
         Line its **intro** up under the playing track's **outro**, so its bass comes in as the other's goes.
 
         **Which part of it starts**: click the waiting deck's overview to choose. The line-up redraws from there.

@@ -35,7 +35,7 @@ In a set, a handoff plays the old track's **outro** over the new track's **intro
 
 Press **LINE UP** at the top right of the timeline. It shows both whole tracks, one above the other: anything stacked vertically plays at the same moment.
 
-1. **Drag the waiting track** left or right under the playing one. It snaps to phrase lines, and the gold label says where it starts: "B STARTS ON A'S BAR 97".
+1. **Drag the waiting track** left or right under the playing one. It snaps to phrase lines, and the gold label says where it starts: "B STARTS ON A'S BAR 97". It can't start in the part of the playing track that has already gone by. Drag it further left and it starts later in its own track instead, skipping the part that would already have played.
 2. Put its **intro** under the playing track's **outro**, so its bass comes in as the other's goes.
 3. Play. When the playing track reaches that bar, the waiting track **starts by itself**, in sync and silent, ready for the lanes.
 
